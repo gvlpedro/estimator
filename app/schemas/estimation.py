@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -6,49 +7,44 @@ PreprocessingMode = Literal["none", "inline_cleaning", "two_phase"]
 ExampleFormat = Literal["markdown", "json", "narrative"]
 
 
+class ProjectType(str, Enum):
+    MOBILE_APP = "mobile_app"
+    WEB_SAAS = "web_saas"
+    INTERNAL_TOOL = "internal_tool"
+    DATA_PIPELINE = "data_pipeline"
+
+
+class DetailLevel(str, Enum):
+    SUMMARY = "summary"
+    MEDIUM = "medium"
+    DETAILED = "detailed"
+
+
+class OutputFormat(str, Enum):
+    PHASES_TABLE = "phases_table"
+    LINE_ITEMS = "line_items"
+    NARRATIVE = "narrative"
+
+
 class EstimationRequest(BaseModel):
-    """Incoming request containing a meeting transcription to estimate."""
+    """Form-shaped request for the estimation endpoint."""
 
-    transcription: str = Field(..., min_length=50, description="Meeting transcription text")
+    description: str = Field(min_length=20, max_length=2000)
+    project_type: ProjectType
+    detail_level: DetailLevel
+    output_format: OutputFormat
 
-    preprocessing: PreprocessingMode = Field(
-        default="none",
-        description="Input preprocessing strategy: none | inline_cleaning | two_phase",
-    )
-    example_format: ExampleFormat = Field(
-        default="markdown",
-        description="Format used to render the CAG examples in the system prompt",
-    )
-    num_examples: int = Field(
-        default=3,
-        ge=0,
-        le=5,
-        description="Number of canonical examples to inject (0..N where N=len(CANONICAL_EXAMPLES))",
-    )
-    use_examples: bool = Field(
-        default=True,
-        description="Toggle the CAG examples block on/off (overrides num_examples when False)",
-    )
-    model: str | None = Field(
-        default=None,
-        description="Override the default LLM_MODEL for this request",
-    )
-    max_tokens: int = Field(
-        default=4000,
-        gt=0,
-        le=16000,
-        description="Maximum output tokens for the estimation call",
-    )
-    thinking_budget: int | None = Field(
-        default=None,
-        ge=0,
-        le=16000,
-        description="Extended thinking budget (Anthropic only). Ignored for OpenAI.",
-    )
-    evaluate: bool = Field(
-        default=True,
-        description="Run the structural evaluation on the generated estimation",
-    )
+
+class EstimationResponse(BaseModel):
+    """Free-form estimation text plus the prompt version that produced it."""
+
+    text: str
+    prompt_version: str
+
+
+# ---------------------------------------------------------------------------
+# Streaming endpoint + evaluation helpers (kept from earlier sessions)
+# ---------------------------------------------------------------------------
 
 
 class TokenUsage(BaseModel):
@@ -62,7 +58,7 @@ class TokenUsage(BaseModel):
 
 
 class StructureCheck(BaseModel):
-    """Level-1 structural evaluation of the generated estimation."""
+    """Level-1 structural evaluation of a generated estimation."""
 
     has_title: bool
     has_breakdown_table: bool
@@ -78,27 +74,6 @@ class StructureCheck(BaseModel):
     finish_reason_ok: bool
     score: float
     issues: list[str]
-
-
-class EstimationResponse(BaseModel):
-    """Response containing the generated estimation and metadata."""
-
-    estimation: str = Field(..., description="Generated software estimation in markdown")
-    model: str = Field(..., description="LLM model used")
-    provider: str = Field(..., description="LLM provider used")
-    usage: TokenUsage
-    finish_reason: str = Field(..., description="Stop reason reported by the provider")
-    preprocessing: PreprocessingMode = "none"
-    extracted_requirements: str | None = Field(
-        default=None,
-        description="Phase-1 output when preprocessing='two_phase'; null otherwise",
-    )
-    latency_ms: int = Field(..., description="Server-side total latency in milliseconds")
-    validation: StructureCheck | None = None
-
-    # --- Session 3 — wrapper metadata (additive, defaults preserve Session 2 tests) ---
-    cache_hit: bool = Field(default=False, description="True when the response came from Redis")
-    cost_usd: float = Field(default=0.0, description="Estimated USD cost based on token usage")
 
 
 class StreamEstimationRequest(BaseModel):

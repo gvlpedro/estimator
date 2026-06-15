@@ -139,6 +139,52 @@ uv run streamlit run streamlit_app.py
 
 La URL del backend se lee de `ESTIMATOR_API_BASE_URL` (default `http://localhost:8000`).
 
+## Sesion 4 — Schemas tipados, prompts versionados y formulario
+
+A partir de la Sesion 4 el endpoint `POST /api/v1/estimate` cambia de contrato y los prompts viven en plantillas Jinja2 versionadas:
+
+- **Request**: `description` (20-2000 chars), `project_type`, `detail_level`, `output_format` (todos `Enum`).
+- **Response**: `text` (markdown libre) + `prompt_version`.
+- **Prompts**: `app/prompts/estimation/v1/{system,user,examples}.j2`. El loader (`app/prompts/loader.py`) expone `render_estimation_prompt(request, version="v1") -> (system, user)`. Cambiar `version` no toca el resto del codigo.
+- **Streamlit**: el chat se sustituye por un `st.form` con textarea + tres `selectbox`. Envia el JSON al endpoint, renderiza la respuesta.
+
+El endpoint de streaming (`POST /api/v1/estimate/stream`) sigue intacto para retrocompatibilidad.
+
+### Levantar el proyecto
+
+Hay un `Makefile` en la raiz que orquesta ambos servicios (FastAPI + Streamlit) sobre el mismo venv de uv (workspace):
+
+```bash
+make setup   # instala uv si falta y sincroniza root + ui (workspace)
+make run     # backend en :8000 y UI en :8501 en paralelo; Ctrl-C los para
+make stop    # libera los puertos si quedan procesos
+```
+
+`make run` es idempotente: si los puertos ya estan ocupados, los libera antes de arrancar.
+
+Antes de la primera ejecucion, configura al menos una API key en `.env` (no se commitea):
+
+```
+OPENAI_API_KEY=sk-...
+# o
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Ejecutar tests
+
+```bash
+uv run pytest                    # toda la suite
+uv run pytest tests/prompts/     # solo tests de plantillas (milisegundos, sin red)
+uv run pytest -k stream          # solo el endpoint SSE
+```
+
+Los tests de plantilla (`tests/prompts/test_estimation_v1.py`) validan que:
+
+- la `description` aparece literal dentro de `<project_description>` en el user prompt,
+- `confidence_pct` esta en el system **solo** cuando `output_format=phases_table`,
+- el bloque `Assumptions` por fase aparece **solo** cuando `detail_level=detailed`,
+- la instruccion `"Do not use tables"` aparece **solo** cuando `output_format=narrative`.
+
 ---
 
 > Este proyecto forma parte del **Master en AI Engineering** y servira como base para evolucionar hacia una arquitectura RAG con base de datos vectorial en modulos posteriores.

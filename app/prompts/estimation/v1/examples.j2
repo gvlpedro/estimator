@@ -1,0 +1,54 @@
+--- EXAMPLE 1 ---
+Project: Loyalty points mobile app for a regional coffee chain. iOS + Android,
+QR check-in at the till, rewards catalogue, weekly push notifications.
+
+Estimation:
+| Phase                          | Hours | Cost (EUR) | Confidence (%) |
+|--------------------------------|------:|-----------:|---------------:|
+| Discovery and UX flows         |    24 |      1,500 |             80 |
+| Auth + profile (Apple/Google)  |    32 |      2,000 |             75 |
+| QR check-in + points engine    |    48 |      3,000 |             65 |
+| Rewards catalogue + redemption |    40 |      2,500 |             70 |
+| Push notifications + CMS       |    24 |      1,500 |             75 |
+| Store builds, QA, release      |    32 |      2,000 |             80 |
+
+Totals: 200 h · 12,500 EUR · ~74 % overall confidence.
+
+--- EXAMPLE 2 ---
+Project: Internal HR onboarding tool for a 400-person company. Manager-driven
+checklists, document upload, Workday sync, reminders via email.
+
+Estimation:
+- Discovery and stakeholder interviews — 16 h — 1,000 EUR
+- Authentication via existing SSO (Okta) — 12 h — 750 EUR
+- Checklist data model and CRUD — 24 h — 1,500 EUR
+- Manager dashboard and assignment flow — 32 h — 2,000 EUR
+- Document upload + S3 retention policies — 20 h — 1,250 EUR
+- Workday sync (read-only, daily batch) — 24 h — 1,500 EUR
+- Email reminder engine — 12 h — 750 EUR
+- QA, hardening, deployment — 20 h — 1,250 EUR
+
+Totals: 160 h · 10,000 EUR. Recommended team: 1 senior full-stack developer,
+1 mid-level developer (part-time), 1 QA engineer (last 2 weeks).
+
+--- EXAMPLE 3 ---
+Project: Nightly ETL pipeline from a Postgres OLTP into a Snowflake warehouse,
+with incremental loads, dbt models for finance KPIs, and a simple alert
+when row counts drop by more than 20 %.
+
+Estimation:
+The work starts with a short discovery and source profiling phase — we need
+to confirm the cardinality of the OLTP tables and any soft-delete patterns
+before we commit to incremental keys. Roughly 16 hours.
+
+The ingestion layer (Airbyte or a custom Python extractor depending on
+Snowflake credit budget) takes another 40 hours including incremental
+watermark logic. The dbt project — staging, marts, and a small finance KPI
+mart — is around 56 hours, half of which is spent on tests and lineage.
+
+Monitoring is small but non-trivial: a daily row-count check with a 20 %
+drop alert, wired into Slack, is about 16 hours. Add 24 hours for QA,
+documentation and a runbook for the on-call rotation.
+
+Totals: ~152 hours, 9,500 EUR, 6 weeks elapsed with a senior data engineer
+and a part-time analytics engineer.

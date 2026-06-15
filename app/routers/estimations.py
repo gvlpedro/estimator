@@ -6,51 +6,37 @@ from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from app.dependencies import get_llm_wrapper
+from app.prompts.loader import render_estimation_prompt
 from app.schemas.estimation import (
     EstimationRequest,
     EstimationResponse,
     StreamEstimationRequest,
 )
-from app.services.evaluation import evaluate_estimation_structure
-from app.services.llm_service import (
-    GenerationOptions,
-    LLMServiceError,
-    build_system_prompt,
-    generate_estimation,
-)
+from app.services.llm_service import build_system_prompt
 from app.services.llm_wrapper import LLMWrapper
 
 log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["estimations"])
 
+PROMPT_VERSION = "v1"
+
 
 @router.post("/estimate", response_model=EstimationResponse)
-async def create_estimation(request: EstimationRequest) -> EstimationResponse:
-    """Receive a meeting transcription and return a software project estimation."""
-    opts = GenerationOptions(
-        preprocessing=request.preprocessing,
-        example_format=request.example_format,
-        num_examples=request.num_examples,
-        use_examples=request.use_examples,
-        model=request.model,
-        max_tokens=request.max_tokens,
-        thinking_budget=request.thinking_budget,
-    )
+async def create_estimation(
+    request: EstimationRequest,
+    wrapper: LLMWrapper = Depends(get_llm_wrapper),
+) -> EstimationResponse:
+    """Render the versioned prompt for ``request`` and return the LLM's text."""
+    system, user = render_estimation_prompt(request, version=PROMPT_VERSION)
 
     try:
-        result = generate_estimation(request.transcription, opts)
-    except LLMServiceError as exc:
-        log.error("estimation_endpoint_error", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        result = wrapper.complete(system_prompt=system, user_message=user)
+    except Exception as exc:  # noqa: BLE001 — surface as HTTP 500
+        log.error("estimate_failed", error=str(exc), error_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
-    validation = (
-        evaluate_estimation_structure(result["estimation"], result["finish_reason"])
-        if request.evaluate
-        else None
-    )
-
-    return EstimationResponse(**result, validation=validation)
+    return EstimationResponse(text=result["estimation"], prompt_version=PROMPT_VERSION)
 
 
 @router.post("/estimate/stream")
@@ -60,10 +46,8 @@ async def create_estimation_stream(
 ) -> EventSourceResponse:
     """Stream a software estimation token by token via Server-Sent Events.
 
-    The streaming path is intentionally simpler than POST /estimate: it skips
-    two-phase preprocessing and structural validation, since both fight the UX
-    benefit of streaming (intermediate phase 1 tokens would leak; validation
-    only makes sense over the complete text).
+    The streaming path keeps the older transcription-based contract — it is
+    used by the legacy demo UI and is not affected by the v1 prompt refactor.
     """
     system_prompt = build_system_prompt()
 
