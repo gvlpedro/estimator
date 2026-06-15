@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Software Estimator — SSE Demo</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 760px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #0f172a;
+        }
+        h2 { margin-bottom: 4px; }
+        .subtitle { color: #64748b; margin-top: 0; margin-bottom: 24px; }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            font-family: inherit;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        button {
+            margin-top: 12px;
+            padding: 10px 24px;
+            font-size: 14px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #93c5fd; cursor: not-allowed; }
+        #status {
+            display: inline-block;
+            margin-left: 12px;
+            font-size: 13px;
+            color: #64748b;
+        }
+        #result {
+            margin-top: 24px;
+            padding: 18px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            min-height: 120px;
+            line-height: 1.55;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Software Estimator</h2>
+    <p class="subtitle">Server-Sent Events demo — POST /api/v1/estimate/stream</p>
+
+    <textarea id="transcription" rows="9" placeholder="Paste a meeting transcription here (at least 50 characters)..."></textarea>
+    <br>
+    <button id="submit" onclick="estimate()">Generate estimation</button>
+    <span id="status"></span>
+
+    <div id="result"></div>
+
+    <script>
+    async function estimate() {
+        const text = document.getElementById('transcription').value;
+        const result = document.getElementById('result');
+        const button = document.getElementById('submit');
+        const status = document.getElementById('status');
+
+        if (text.trim().length < 50) {
+            status.textContent = 'Need at least 50 characters.';
+            return;
+        }
+
+        result.textContent = '';
+        button.disabled = true;
+        button.textContent = 'Streaming...';
+        status.textContent = '';
+
+        const startedAt = performance.now();
+
+        try {
+            const response = await fetch('/api/v1/estimate/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcription: text }),
+            });
+
+            if (!response.ok) {
+                const detail = await response.text();
+                result.textContent = `HTTP ${response.status}: ${detail}`;
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let currentEvent = 'token';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                // SSE per spec uses CRLF (`\r\n`) line endings and `\r\n\r\n`
+                // as message separator. Some servers use plain `\n` — accept
+                // both with a regex split so the parser is portable.
+                const messages = buffer.split(/\r?\n\r?\n/);
+                buffer = messages.pop() ?? '';
+
+                for (const message of messages) {
+                    // Per SSE spec, a single message can have multiple `data:`
+                    // lines; the payload is them joined by '\n'.
+                    let evt = 'token';
+                    const dataLines = [];
+                    for (const line of message.split(/\r?\n/)) {
+                        if (line.startsWith('event:')) {
+                            evt = line.slice(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataLines.push(
+                                line.startsWith('data: ') ? line.slice(6) : line.slice(5)
+                            );
+                        }
+                    }
+                    if (dataLines.length === 0) continue;
+                    const payloadText = dataLines.join('\n');
+                    if (evt === 'token') {
+                        result.textContent += payloadText;
+                    } else if (evt === 'error') {
+                        result.textContent += `\n\n[ERROR] ${payloadText}`;
+                    }
+                    currentEvent = evt;
+                }
+            }
+
+            const elapsed = ((performance.now() - startedAt) / 1000).toFixed(1);
+            status.textContent = `Done in ${elapsed}s`;
+        } catch (error) {
+            result.textContent = `Network error: ${error.message}`;
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Generate estimation';
+        }
+    }
+    </script>
+</body>
+</html>
