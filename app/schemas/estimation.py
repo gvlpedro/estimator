@@ -26,6 +26,16 @@ class OutputFormat(str, Enum):
     NARRATIVE = "narrative"
 
 
+class ReferenceProject(BaseModel):
+    """A past project the caller wants the model to use as a similarity anchor."""
+
+    title: str = Field(min_length=1, max_length=120)
+    summary: str = Field(min_length=10, max_length=600)
+    total_hours: int = Field(ge=1)
+    total_cost_eur: int = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=400)
+
+
 class EstimationRequest(BaseModel):
     """Form-shaped request for the estimation endpoint."""
 
@@ -33,6 +43,7 @@ class EstimationRequest(BaseModel):
     project_type: ProjectType
     detail_level: DetailLevel
     output_format: OutputFormat
+    reference_projects: list[ReferenceProject] | None = None
 
 
 class EstimationResponse(BaseModel):

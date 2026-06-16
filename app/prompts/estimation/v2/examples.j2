@@ -1,0 +1,38 @@
+--- POST-MORTEM 1 ---
+Project: B2B billing portal layered on Stripe. Initially scoped at 160 h.
+Actual: 248 h.
+
+What slipped: Stripe webhook signing edge cases (signature mismatch on
+retries) ate 30 h that nobody scoped. Multi-tenant invoice PDF rendering
+collided with the chosen template engine and forced a swap (+24 h).
+GDPR delete-by-account-id needed cascade rules nobody specified upfront
+(+16 h).
+
+Lesson: any non-trivial Stripe integration carries 30 % more risk than the
+naive raw-task estimate.
+
+--- POST-MORTEM 2 ---
+Project: Internal data ingestion pipeline (Postgres → Snowflake, nightly).
+Initially scoped at 120 h. Actual: 144 h. Within buffer.
+
+What went right: the team had shipped a similar pipeline 6 months earlier
+and reused 40 % of the dbt project. The 20 % buffer absorbed two real
+incidents (a schema change in the source OLTP and a Snowflake credit
+spike) without missing the deadline.
+
+Lesson: prior in-house experience in the same stack is worth a 20 %
+discount on raw hours. Without it, hold the buffer.
+
+--- POST-MORTEM 3 ---
+Project: Customer support AI chatbot with RAG. Initially scoped at 180 h.
+Actual: 264 h. Over by 47 %.
+
+What slipped: the knowledge base ingestion was scoped for "PDFs and FAQs"
+but in reality the client had 14 different document templates, two of
+which were scanned PDFs requiring OCR (+40 h). Evaluation harness was an
+afterthought; the team spent 30 h building a benchmark suite they should
+have planned for.
+
+Lesson: RAG ingestion is always more heterogeneous than the kick-off call
+suggests. Always include an OCR / dirty-data line item even if the client
+swears they don't need it.

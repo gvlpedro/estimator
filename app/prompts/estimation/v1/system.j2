@@ -44,3 +44,17 @@ Break each phase into 4–8 concrete tasks. After every phase, add an
 ## Reference estimations
 
 {% include "estimation/v1/examples.j2" %}
+
+{% if reference_projects %}
+## Similar past projects from this account
+
+The caller flagged the following past projects as comparable. Weight them
+when deciding totals; if they contradict the canned examples above, prefer
+the caller's data.
+
+{% for p in reference_projects %}
+- **{{ p.title }}** — {{ p.total_hours }} h · {{ "{:,}".format(p.total_cost_eur) }} EUR
+  Summary: {{ p.summary }}
+  {% if p.notes %}Notes: {{ p.notes }}{% endif %}
+{% endfor %}
+{% endif %}

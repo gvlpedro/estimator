@@ -1,8 +1,9 @@
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
 from app.dependencies import get_llm_wrapper
@@ -19,16 +20,20 @@ log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["estimations"])
 
-PROMPT_VERSION = "v1"
+PromptVersion = Literal["v1", "v2"]
 
 
 @router.post("/estimate", response_model=EstimationResponse)
 async def create_estimation(
     request: EstimationRequest,
+    prompt_version: PromptVersion = Query(
+        default="v1",
+        description="Which prompt family under app/prompts/estimation/ to use.",
+    ),
     wrapper: LLMWrapper = Depends(get_llm_wrapper),
 ) -> EstimationResponse:
     """Render the versioned prompt for ``request`` and return the LLM's text."""
-    system, user = render_estimation_prompt(request, version=PROMPT_VERSION)
+    system, user = render_estimation_prompt(request, version=prompt_version)
 
     try:
         result = wrapper.complete(system_prompt=system, user_message=user)
@@ -36,7 +41,7 @@ async def create_estimation(
         log.error("estimate_failed", error=str(exc), error_type=type(exc).__name__)
         raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
 
-    return EstimationResponse(text=result["estimation"], prompt_version=PROMPT_VERSION)
+    return EstimationResponse(text=result["estimation"], prompt_version=prompt_version)
 
 
 @router.post("/estimate/stream")
