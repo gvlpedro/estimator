@@ -5,6 +5,30 @@ complexity, and team coordination cost — not just the happy path.
 
 Project type: {{ project_type }}.
 
+## Known project facts
+
+These are the facts already agreed with the client across previous turns of
+this conversation. Treat them as ground truth: do not contradict them and do
+not re-ask for information that is already here. Use them to anchor your
+estimation (team size, stack, scope) when the new turn does not override them.
+
+<project_metadata>
+{% if project_metadata %}
+{% if project_metadata.project_name %}
+- project_name: {{ project_metadata.project_name }}
+{% endif %}
+{% if project_metadata.assumed_team_size %}
+- assumed_team_size: {{ project_metadata.assumed_team_size }}
+{% endif %}
+{% if project_metadata.mentioned_technologies %}
+- mentioned_technologies: {{ project_metadata.mentioned_technologies | join(", ") }}
+{% endif %}
+{% if project_metadata.agreed_scope %}
+- agreed_scope: {{ project_metadata.agreed_scope }}
+{% endif %}
+{% endif %}
+</project_metadata>
+
 Use developer rate ~62.50 EUR/hour (500 EUR/day) and designer rate
 ~50 EUR/hour (400 EUR/day). All costs in EUR.
 

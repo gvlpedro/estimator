@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.routers import estimations
+from app.routers import estimations, sessions
 
 
 def configure_logging() -> None:
@@ -65,6 +65,7 @@ app.add_middleware(
 )
 
 app.include_router(estimations.router)
+app.include_router(sessions.router)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():

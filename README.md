@@ -185,6 +185,97 @@ Los tests de plantilla (`tests/prompts/test_estimation_v1.py`) validan que:
 - el bloque `Assumptions` por fase aparece **solo** cuando `detail_level=detailed`,
 - la instruccion `"Do not use tables"` aparece **solo** cuando `output_format=narrative`.
 
+## Sesion 5 — Sesiones conversacionales y adjuntos locales
+
+A partir de la Sesion 5 el servicio expone una capa de sesion para mantener historico de conversacion y metadatos del proyecto entre llamadas, y permite enriquecer la estimacion con documentos adjuntos (PDF y similares).
+
+### Endpoints nuevos
+
+- `POST /api/v1/sessions` -> `{"session_id": "<uuid4>"}`. El cliente guarda el id y lo reutiliza en peticiones siguientes para compartir memoria entre paginas.
+- `POST /api/v1/sessions/{session_id}/estimate` -> mismo `EstimationResponse` que `/api/v1/estimate`, pero acepta `multipart/form-data` con:
+  - `transcript` (str, requerido): transcripcion o descripcion libre.
+  - `attachments` (list[UploadFile], opcional): documentacion complementaria.
+  - `project_type`, `detail_level`, `output_format` (opcionales, con defaults).
+
+Ejemplo:
+
+```bash
+SESSION=$(curl -s -X POST http://localhost:8000/api/v1/sessions | jq -r .session_id)
+
+curl -X POST http://localhost:8000/api/v1/sessions/$SESSION/estimate \
+  -F 'transcript=El cliente quiere un portal interno para gestionar contratos...' \
+  -F 'attachments=@spec.pdf' \
+  -F 'project_type=internal_tool' \
+  -F 'detail_level=detailed'
+```
+
+### Estrategia de adjuntos: extraccion local con pypdf y python-docx
+
+Cuando llegan adjuntos, el servicio **no** los reenvia al proveedor LLM. Los parsea localmente con librerias ligeras por extension y concatena el texto extraido al `transcript` con un separador explicito antes de construir el prompt:
+
+| Extension      | Libreria       | Notas                                    |
+|----------------|----------------|------------------------------------------|
+| `.pdf`         | `pypdf`        | Texto por pagina, paginas vacias se omiten. |
+| `.docx`        | `python-docx`  | Texto por parrafo, parrafos vacios se omiten. |
+| `.md` / `.txt` | stdlib         | Decodificado UTF-8 con fallback latin-1. |
+
+Formato del prompt resultante:
+
+```
+<transcript original>
+
+--- attachment: spec.pdf ---
+
+<texto extraido pagina a pagina>
+
+--- attachment: contratos.docx ---
+
+<texto extraido parrafo a parrafo>
+```
+
+Tipos no soportados devuelven `422` con un mensaje claro; el cliente no debe asumir que cualquier binario se acepta.
+
+#### Por que no usar una Files API del proveedor (OpenAI, Anthropic, ...)
+
+- La extraccion corre dentro de nuestro proceso, asi que podemos cambiar de proveedor LLM (o pasar a un modelo self-hosted) sin tocar esta capa. Una Files API ata el ciclo de vida del adjunto, su retencion y su precio a un unico vendor; migrar implica reescribir esta capa.
+- Las Files API cobran tokens por todo el documento en cada llamada que lo referencia. Nosotros extraemos una sola vez en el CPU que ya pagamos y el texto es cacheable como cualquier otro input.
+- El texto que llega al prompt es **auditable** — se loguea su tamano, se puede diffear y cachear. Una Files API esconde el parsing detras de una llamada al modelo que no podemos inspeccionar.
+
+#### Por que pypdf + python-docx y no una herramienta mas potente
+
+- Son **puro Python** (o casi), MIT-licensed, sin dependencias nativas ni modelos de ML. Instalan en todas las plataformas que nos importan (incluido macOS Intel) en segundos y no hinchan la imagen Docker.
+- **Prepara el terreno para el modulo 3 (RAG).** Una vez el texto extraido es ciudadano de primera clase en esta capa, el siguiente paso — chunking + embeddings para retrieval — es una preocupacion local que no cambia el contrato del upload ni el router. Mover esta capa a una pipeline con vector store es aditivo, no destructivo.
+- Asumimos el trade-off: la fidelidad de extraccion en PDFs complejos (escaneados, multi-columna, formularios) es menor que la de toolkits con OCR. Si en su dia esa fidelidad pasa a ser un requisito real, sustituir `_extract_pdf` por PyMuPDF o pdfplumber es un cambio de una funcion, no de la arquitectura.
+
+### Project Metadata Injection
+
+Cada sesion mantiene un blob `ProjectMetadata` (nombre, tamano de equipo asumido, tecnologias mencionadas y `agreed_scope`) que se inyecta en el system prompt dentro de un bloque dedicado:
+
+```
+<project_metadata>
+- project_name: HR Onboarding Portal
+- assumed_team_size: 5
+- mentioned_technologies: Java, Spring Boot, PostgreSQL
+- agreed_scope: MVP con auth, flujo de onboarding y panel de aprobaciones.
+</project_metadata>
+```
+
+El bloque se renderiza **siempre** (presente en `system.j2` v1 y v2); en la primera llamada de la sesion el cuerpo esta vacio. Cuando hay hechos conocidos, el LLM los trata como ground truth: no debe contradecirlos ni volver a preguntarlos.
+
+#### Por que actualizamos `ProjectMetadata` con una segunda llamada al LLM y no con regex / NER
+
+Tras cada estimacion lanzamos una **segunda llamada** al LLM (`app/services/metadata_extractor.py`) que recibe el metadata actual, el nuevo turno de usuario y la respuesta del asistente, y devuelve un JSON validado contra `ProjectMetadata` (via Instructor). El nuevo blob reemplaza al anterior en `session.metadata`.
+
+Decidimos usar un LLM en vez de patrones regulares o NER porque la extraccion necesita **comprension**, no solo coincidencia:
+
+- **Inferencia transitiva de tecnologias.** Un usuario que dice "tenemos un servicio en Spring Boot" esta hablando implicitamente de **Java** (y de la JVM). Una regex sobre la cadena `"Spring Boot"` no captura `Java` porque la palabra nunca aparece. El LLM si lo deduce, y el prompt se enriquece con la tecnologia subyacente. Lo mismo aplica a Next.js -> React/JavaScript, FastAPI -> Python, Kotlin -> JVM, .NET MAUI -> C#, etc.
+- **Normalizacion y dedup.** "Postgres", "PostgreSQL" y "postgres 16" son la misma tecnologia; "five people", "un equipo de cinco" y "5 personas" son el mismo `assumed_team_size`. Mantener una tabla de sinonimos a mano y combinarla con regex no escala y se rompe en cuanto cambia la forma de hablar del cliente.
+- **Refinamientos sobrescribibles.** El cliente puede decir "en realidad somos seis personas, no tres" varios turnos despues. El LLM razona sobre el contexto y reemplaza el valor antiguo; una regex no sabe que el segundo numero invalida al primero.
+- **`agreed_scope` es resumen, no extraccion literal.** Hay que condensar 1-3 frases que reflejen el consenso conversacional, no buscar una subcadena. Esto solo lo hace bien un modelo.
+- **Robusto a transcripciones ruidosas.** Los `transcript` reales incluyen muletillas, frases incompletas y texto extraido de PDFs/DOCX con saltos raros. La regex se rompe; el LLM lo tolera.
+
+El coste asumido es claro: una segunda llamada por turno (modelo pequeno, prompt corto, respuesta estructurada) y la posibilidad de que la extraccion falle. Mitigamos lo segundo capturando cualquier excepcion del extractor y conservando el metadata previo, asi un fallo del extractor nunca tira la estimacion principal.
+
 ---
 
 > Este proyecto forma parte del **Master en AI Engineering** y servira como base para evolucionar hacia una arquitectura RAG con base de datos vectorial en modulos posteriores.

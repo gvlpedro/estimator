@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     ESTIMATOR_API_BASE_URL: str = "http://localhost:8000"
 
+    # --- Session 5 fields (conversational sessions) ---
+    # MAX_TURNS counts user+assistant PAIRS. The system prompt is pinned and
+    # never counted. Default 6 keeps the prompt budget bounded while still
+    # giving the LLM enough recent context for multi-turn refinement.
+    MAX_TURNS: int = 6
+
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":
         """LiteLLM may try either provider via fallback, so we require at least one key."""

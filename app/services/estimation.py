@@ -33,14 +33,24 @@ from app.schemas.estimation import (
 )
 from app.services.cache import EstimationCache
 from app.services.llm_wrapper import LLMWrapper
+from app.services.sessions import ProjectMetadata
 
 log = structlog.get_logger()
 
 __all__ = ["EstimationService", "InputGuardrailViolation"]
 
 
-def _exact_cache_key(request: EstimationRequest, prompt_version: str, model: str) -> str:
-    """Deterministic SHA-256 key over the typed request + prompt_version + model."""
+def _exact_cache_key(
+    request: EstimationRequest,
+    prompt_version: str,
+    model: str,
+    project_metadata: ProjectMetadata | None,
+) -> str:
+    """Deterministic SHA-256 key over the typed request + prompt_version + model.
+
+    ``project_metadata`` is included so two turns of the same session with
+    different known facts do not collide on the same cache entry.
+    """
     payload = json.dumps(
         {
             "description": request.description,
@@ -51,6 +61,9 @@ def _exact_cache_key(request: EstimationRequest, prompt_version: str, model: str
                 [rp.model_dump() for rp in request.reference_projects]
                 if request.reference_projects
                 else None
+            ),
+            "project_metadata": (
+                project_metadata.model_dump(mode="json") if project_metadata else None
             ),
             "prompt_version": prompt_version,
             "model": model,
@@ -82,19 +95,24 @@ class EstimationService:
         request: EstimationRequest,
         *,
         prompt_version: str | None = None,
+        project_metadata: ProjectMetadata | None = None,
     ) -> EstimationResponse:
         version = prompt_version or self.prompt_version
 
         check_input(request.description, openai_client=self.openai_client)
 
-        cache_key = _exact_cache_key(request, version, self.llm_wrapper.primary_model)
+        cache_key = _exact_cache_key(
+            request, version, self.llm_wrapper.primary_model, project_metadata
+        )
         cached = self.exact_cache.get(cache_key)
         if cached:
             log.info("estimation_cache_hit", kind="exact", key_prefix=cache_key[:24])
             result = EstimationResult.model_validate(cached["result"])
             return EstimationResponse(result=result, prompt_version=version, cached=True)
 
-        system_prompt, user_message = render_estimation_prompt(request, version=version)
+        system_prompt, user_message = render_estimation_prompt(
+            request, version=version, project_metadata=project_metadata
+        )
 
         completion = self.llm_wrapper.complete_structured(
             system_prompt=system_prompt,

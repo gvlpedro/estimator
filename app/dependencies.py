@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.services.cache import EstimationCache
 from app.services.estimation import EstimationService
 from app.services.llm_wrapper import LLMWrapper
+from app.services.sessions import SessionStore
 
 log = structlog.get_logger()
 
@@ -52,3 +53,10 @@ def get_estimation_service() -> EstimationService:
         exact_cache=get_cache(),
         openai_client=get_openai_client(),
     )
+
+
+@lru_cache
+def get_session_store() -> SessionStore:
+    """Process-wide in-memory store for multi-turn conversation sessions."""
+    settings = get_settings()
+    return SessionStore(max_turns=settings.MAX_TURNS)
