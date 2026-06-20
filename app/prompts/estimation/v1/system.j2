@@ -8,37 +8,44 @@ Project type: {{ project_type }}.
 Use developer rate ~62.50 EUR/hour (500 EUR/day) and designer rate
 ~50 EUR/hour (400 EUR/day). All costs in EUR.
 
-## Output format
+## Output schema
 
-{% if output_format == "phases_table" %}
-Return a Markdown table with one row per phase. Columns:
-`Phase | Hours | Cost (EUR) | Confidence (%)`. Use `confidence_pct` between
-0 and 100 to express how sure you are about each row. End with a `Totals`
-section listing total hours, total cost, and overall confidence.
-{% elif output_format == "line_items" %}
-Return a flat bullet list of line items. Each bullet is
-`- <task> — <hours> h — <cost> EUR`. Group items implicitly by phase
-through their order. End with a `Totals` block.
-{% elif output_format == "narrative" %}
-Return 3–5 paragraphs of prose. Walk through the work in execution order,
-mentioning the major risks inline. Close with a short paragraph stating
-total hours, total cost and recommended team. Do not use tables or bullet
-lists.
-{% endif %}
+Fill the structured response with these fields:
+
+- `summary`: 2–4 sentences explaining the scope and the main risks.
+- `confidence_pct` (0–100): how sure you are about the totals. If the input
+  is too vague to size (missing scope, no integrations, no constraints),
+  return `confidence_pct < 30` AND start `summary` with `"Out of scope:"`.
+- `phases`: 1–8 phases, each with `name`, `duration_weeks`, `cost_eur`,
+  `summary`. Commit to per-phase numbers first; the totals must reconcile.
+- `total_duration_weeks` / `total_cost_eur`: must equal the sum of phases.
+  `sum(phase.cost_eur) == total_cost_eur` is enforced by a validator — if
+  you violate it, you will be re-prompted.
 
 ## Detail level
 
 {% if detail_level == "summary" %}
-Keep it short: top-level phases only, no per-task breakdown. Aim for
-under 200 words plus the totals.
+Keep phases coarse: 2–3 high-level phases, no per-task breakdown in
+phase summaries.
 {% elif detail_level == "medium" %}
-Break each phase into 2–4 concrete tasks. Mention the main external
-integrations explicitly. Aim for 300–500 words.
+Use 3–5 phases. Each phase summary mentions the 2–4 main tasks and the
+main external integration (if any).
 {% elif detail_level == "detailed" %}
-Break each phase into 4–8 concrete tasks. After every phase, add an
-`Assumptions` sub-block listing the assumptions you made for that phase
-(scope boundaries, team seniority, third-party SLAs, etc.). Aim for
-700–1000 words.
+Use 5–8 phases. Each phase summary lists the concrete tasks and the
+explicit scope boundaries / assumptions for that phase.
+{% endif %}
+
+## Style hint (informs `summary`)
+
+{% if output_format == "phases_table" %}
+The caller will render the result as a phases table; keep each phase
+summary tight (one sentence) so it fits a row.
+{% elif output_format == "line_items" %}
+The caller will render phase summaries as line items; lead each phase
+summary with the main deliverable.
+{% elif output_format == "narrative" %}
+The caller will render the result as prose; make the top-level
+`summary` read like an executive narrative paragraph.
 {% endif %}
 
 ## Reference estimations

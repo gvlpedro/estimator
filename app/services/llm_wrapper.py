@@ -19,15 +19,36 @@ Design notes
 from __future__ import annotations
 
 import time
-from typing import Any, Iterator
+from dataclasses import dataclass
+from typing import Any, Generic, Iterator, TypeVar
 
+import instructor
 import litellm
 import structlog
 from litellm import Router
+from pydantic import BaseModel
 
 from app.services.cache import EstimationCache
 
 log = structlog.get_logger()
+
+T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class StructuredCompletion(Generic[T]):
+    """Return value of :meth:`LLMWrapper.complete_structured`.
+
+    ``result`` is the validated business payload (an instance of the
+    ``response_model`` the caller passed in). The remaining fields are
+    operational metadata about the call — useful for logging, metrics and
+    dashboards, but not for the end user.
+    """
+
+    result: T
+    model: str
+    provider: str
+    latency_ms: int
 
 
 # Cost per 1M tokens (USD). Update as pricing changes.
@@ -105,6 +126,10 @@ class LLMWrapper:
             num_retries=num_retries,
         )
 
+        # Instructor wraps ``litellm.completion`` so any underlying provider
+        # accepts ``response_model=`` and re-prompts on validator errors.
+        self._instructor = instructor.from_litellm(litellm.completion)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -177,6 +202,74 @@ class LLMWrapper:
         )
         self.cache.set(cache_key, result)
         return {**result, "cache_hit": False}
+
+    def complete_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        response_model: type[T],
+        model_override: str | None = None,
+        max_tokens: int = 4000,
+        max_retries: int = 6,
+    ) -> StructuredCompletion[T]:
+        """Run the LLM with Instructor and return a :class:`StructuredCompletion`.
+
+        Instructor re-prompts the LLM up to ``max_retries`` times when a
+        Pydantic validator raises, feeding the ``ValueError`` message back to
+        the model.
+        """
+        target_model = model_override or self.primary_model
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        api_key = (
+            self.anthropic_api_key
+            if _provider_from_model(target_model) == "anthropic"
+            else self.openai_api_key
+        )
+
+        log.info(
+            "llm_structured_call_started",
+            model=target_model,
+            response_model=response_model.__name__,
+        )
+        t0 = time.perf_counter()
+        try:
+            result = self._instructor.chat.completions.create(
+                model=target_model,
+                api_key=api_key,
+                timeout=self.timeout,
+                messages=messages,
+                response_model=response_model,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+            )
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            log.error(
+                "llm_structured_call_failed",
+                error_type=type(exc).__name__,
+                error=str(exc)[:400],
+                latency_ms=latency_ms,
+            )
+            raise
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        completion = StructuredCompletion(
+            result=result,
+            model=_normalise_model_name(target_model),
+            provider=_provider_from_model(target_model),
+            latency_ms=latency_ms,
+        )
+        log.info(
+            "llm_structured_call_completed",
+            model=completion.model,
+            provider=completion.provider,
+            latency_ms=completion.latency_ms,
+        )
+        return completion
 
     def complete_stream(
         self,

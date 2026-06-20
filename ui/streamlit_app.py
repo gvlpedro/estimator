@@ -99,8 +99,36 @@ if submitted:
             st.stop()
 
     body = response.json()
-    st.caption(f"Prompt version: `{body.get('prompt_version', '?')}`")
-    st.markdown(body.get("text", ""))
+    result = body.get("result") or {}
+    st.caption(
+        f"Prompt version: `{body.get('prompt_version', '?')}` · "
+        f"cached: `{body.get('cached', False)}` · "
+        f"confidence: `{result.get('confidence_pct', '?')}%`"
+    )
+
+    st.subheader("Summary")
+    st.markdown(result.get("summary", "_(no summary)_"))
+
+    st.subheader("Phases")
+    phases = result.get("phases") or []
+    if phases:
+        st.dataframe(
+            [
+                {
+                    "Phase": p["name"],
+                    "Weeks": p["duration_weeks"],
+                    "Cost (EUR)": p["cost_eur"],
+                    "Detail": p["summary"],
+                }
+                for p in phases
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    col_t1, col_t2 = st.columns(2)
+    col_t1.metric("Total cost (EUR)", f"{result.get('total_cost_eur', 0):,}")
+    col_t2.metric("Total duration (weeks)", result.get("total_duration_weeks", 0))
 
 
 with st.sidebar:

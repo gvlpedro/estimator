@@ -6,13 +6,14 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
-from app.dependencies import get_llm_wrapper
-from app.prompts.loader import render_estimation_prompt
+from app.dependencies import get_estimation_service, get_llm_wrapper
+from app.guardrails import InputGuardrailViolation
 from app.schemas.estimation import (
     EstimationRequest,
     EstimationResponse,
     StreamEstimationRequest,
 )
+from app.services.estimation import EstimationService
 from app.services.llm_service import build_system_prompt
 from app.services.llm_wrapper import LLMWrapper
 
@@ -24,24 +25,49 @@ PromptVersion = Literal["v1", "v2"]
 
 
 @router.post("/estimate", response_model=EstimationResponse)
-async def create_estimation(
+def create_estimation(
     request: EstimationRequest,
     prompt_version: PromptVersion = Query(
         default="v1",
         description="Which prompt family under app/prompts/estimation/ to use.",
     ),
-    wrapper: LLMWrapper = Depends(get_llm_wrapper),
+    service: EstimationService = Depends(get_estimation_service),
 ) -> EstimationResponse:
-    """Render the versioned prompt for ``request`` and return the LLM's text."""
-    system, user = render_estimation_prompt(request, version=prompt_version)
+    """Run the full structured-estimation pipeline and return the validated result.
+
+    - ``InputGuardrailViolation`` → 400 ``{reason, message}`` so the client can
+      render an actionable error (prompt injection, PII, moderation).
+    - Anything else from the pipeline → 502 (includes ``InstructorRetryException``
+      when the model can't satisfy validators within ``max_retries``).
+    """
+    log.info(
+        "estimation_request_received",
+        project_type=request.project_type.value,
+        detail_level=request.detail_level.value,
+        output_format=request.output_format.value,
+        description_chars=len(request.description),
+        prompt_version=prompt_version,
+    )
 
     try:
-        result = wrapper.complete(system_prompt=system, user_message=user)
-    except Exception as exc:  # noqa: BLE001 — surface as HTTP 500
-        log.error("estimate_failed", error=str(exc), error_type=type(exc).__name__)
-        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}") from exc
-
-    return EstimationResponse(text=result["estimation"], prompt_version=prompt_version)
+        return service.estimate(request, prompt_version=prompt_version)
+    except InputGuardrailViolation as exc:
+        log.info(
+            "estimation_blocked_by_input_guardrail",
+            reason=exc.reason,
+            message=exc.message,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        log.error(
+            "estimation_endpoint_error",
+            error=str(exc)[:400],
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
 
 
 @router.post("/estimate/stream")
