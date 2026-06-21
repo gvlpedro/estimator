@@ -18,12 +18,9 @@ broken extractor must never break the estimation pipeline.
 
 from __future__ import annotations
 
-import structlog
-
+from app.schemas.log import ProjectMetadataExtractionFailed, ProjectMetadataUpdated
 from app.services.llm_wrapper import LLMWrapper
 from app.services.sessions import ProjectMetadata
-
-log = structlog.get_logger()
 
 EXTRACTOR_SYSTEM_PROMPT = """You extract structured project facts from one turn
 of a software-estimation conversation.
@@ -87,21 +84,19 @@ def extract_project_metadata(
             response_model=ProjectMetadata,
         )
     except Exception as exc:  # noqa: BLE001 — extractor must not break estimation
-        log.warning(
-            "project_metadata_extraction_failed",
-            error=str(exc)[:300],
+        ProjectMetadataExtractionFailed(
+            error=str(exc),
             error_type=type(exc).__name__,
-        )
+        ).emit()
         return current
 
     new_metadata = completion.result
-    log.info(
-        "project_metadata_updated",
+    ProjectMetadataUpdated(
         had_project_name=bool(current.project_name),
         has_project_name=bool(new_metadata.project_name),
         prev_n_technologies=len(current.mentioned_technologies),
         next_n_technologies=len(new_metadata.mentioned_technologies),
         had_agreed_scope=bool(current.agreed_scope),
         has_agreed_scope=bool(new_metadata.agreed_scope),
-    )
+    ).emit()
     return new_metadata

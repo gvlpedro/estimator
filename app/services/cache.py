@@ -14,9 +14,14 @@ import json
 from typing import Any
 
 import redis
-import structlog
 
-log = structlog.get_logger()
+from app.schemas.log import (
+    CacheGetFailed,
+    CacheHit,
+    CacheMiss,
+    CacheSetFailed,
+    CacheStored,
+)
 
 
 class EstimationCache:
@@ -56,17 +61,17 @@ class EstimationCache:
         try:
             cached = self.redis.get(key)
         except redis.RedisError as exc:
-            log.warning("cache_get_failed", error=str(exc))
+            CacheGetFailed(error=str(exc)).emit()
             return None
         if cached:
-            log.info("cache_hit", key_prefix=key[:24])
+            CacheHit(key_prefix=key[:24]).emit()
             return json.loads(cached)
-        log.info("cache_miss", key_prefix=key[:24])
+        CacheMiss(key_prefix=key[:24]).emit()
         return None
 
     def set(self, key: str, response: dict[str, Any]) -> None:
         try:
             self.redis.setex(key, self.ttl, json.dumps(response))
-            log.info("cache_stored", key_prefix=key[:24], ttl=self.ttl)
+            CacheStored(key_prefix=key[:24], ttl=self.ttl).emit()
         except redis.RedisError as exc:
-            log.warning("cache_set_failed", error=str(exc))
+            CacheSetFailed(error=str(exc)).emit()

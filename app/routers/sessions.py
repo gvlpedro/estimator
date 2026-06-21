@@ -7,7 +7,6 @@ and accumulated project metadata across pages or HTTP calls.
 
 from __future__ import annotations
 
-import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile
 from pydantic import BaseModel, Field
 
@@ -20,6 +19,12 @@ from app.schemas.estimation import (
     OutputFormat,
     ProjectType,
 )
+from app.schemas.log import (
+    SessionCreated,
+    SessionEstimateBlockedByInputGuardrail,
+    SessionEstimateEndpointError,
+    SessionEstimateRequest,
+)
 from app.services.attachments import (
     AttachmentExtractionError,
     extract_attachment_text,
@@ -29,8 +34,6 @@ from app.services.estimation import EstimationService
 from app.services.llm_wrapper import LLMWrapper
 from app.services.metadata_extractor import extract_project_metadata
 from app.services.sessions import Message, ProjectMetadata, SessionStore
-
-log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
@@ -84,7 +87,7 @@ def create_session(
     ``ProjectMetadata`` across calls.
     """
     session = store.get_or_create()
-    log.info("session_created", session_id=session.session_id)
+    SessionCreated(session_id=session.session_id).emit()
     return SessionCreatedResponse(session_id=session.session_id)
 
 
@@ -148,13 +151,12 @@ def estimate_in_session(
 
     description = merge_transcript_and_attachments(transcript, extracted)
 
-    log.info(
-        "session_estimate_request",
+    SessionEstimateRequest(
         session_id=session_id,
         transcript_chars=len(transcript),
         attachments=len(extracted),
         description_chars=len(description),
-    )
+    ).emit()
 
     request = EstimationRequest(
         description=description,
@@ -166,22 +168,20 @@ def estimate_in_session(
     try:
         response = service.estimate(request, project_metadata=session.metadata)
     except InputGuardrailViolation as exc:
-        log.info(
-            "session_estimate_blocked_by_input_guardrail",
+        SessionEstimateBlockedByInputGuardrail(
             session_id=session_id,
             reason=exc.reason,
-        )
+        ).emit()
         raise HTTPException(
             status_code=400,
             detail={"reason": exc.reason, "message": exc.message},
         ) from exc
     except Exception as exc:
-        log.error(
-            "session_estimate_endpoint_error",
+        SessionEstimateEndpointError(
             session_id=session_id,
-            error=str(exc)[:400],
+            error=str(exc),
             error_type=type(exc).__name__,
-        )
+        ).emit()
         raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
 
     assistant_reply_json = response.result.model_dump_json()

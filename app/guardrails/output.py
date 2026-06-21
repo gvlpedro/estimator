@@ -12,16 +12,13 @@ we got here, so this filter mostly handles edge cases at the boundary.
 
 from __future__ import annotations
 
-import structlog
-
 from app.schemas.estimation import (
     LOW_CONFIDENCE_THRESHOLD,
     OUT_OF_SCOPE_PREFIX,
     EstimationResult,
     Phase,
 )
-
-log = structlog.get_logger()
+from app.schemas.log import EnforceScopeResponseFiltering
 
 
 _NOT_ESTIMATED_PHASE = Phase(
@@ -44,11 +41,10 @@ def enforce_scope_response(result: EstimationResult) -> EstimationResult:
     if not is_low_confidence or already_marked:
         return result
 
-    log.info(
-        "enforce_scope_response_filtering",
+    EnforceScopeResponseFiltering(
         confidence_pct=result.confidence_pct,
         original_summary_chars=len(result.summary),
-    )
+    ).emit()
     new_summary = (
         f"{OUT_OF_SCOPE_PREFIX} not enough information to estimate confidently. "
         f"Original model rationale: {result.summary[:400]}"

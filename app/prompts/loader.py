@@ -12,13 +12,11 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.schemas.estimation import EstimationRequest
+from app.schemas.log import PromptRendered
 from app.services.sessions import ProjectMetadata
-
-log = structlog.get_logger()
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 
@@ -81,8 +79,7 @@ def render_estimation_prompt(
     system = _env.get_template(f"estimation/{version}/system.j2").render(**ctx)
     user = _env.get_template(f"estimation/{version}/user.j2").render(**ctx)
 
-    log.info(
-        "prompt_rendered",
+    PromptRendered(
         prompt_version=version,
         content_hash=_content_hash(system, user),
         system_chars=len(system),
@@ -90,7 +87,7 @@ def render_estimation_prompt(
         has_reference_projects=bool(ctx["reference_projects"]),
         n_reference_projects=len(ctx["reference_projects"] or []),
         has_project_metadata=metadata_for_template is not None,
-    )
+    ).emit()
 
     return system, user
 

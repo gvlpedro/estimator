@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.routers import estimations, sessions
+from app.schemas.log import ApplicationShutdown, ApplicationStarted
 
 
 def configure_logging() -> None:
@@ -40,11 +41,10 @@ def configure_logging() -> None:
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
     configure_logging()
-    log = structlog.get_logger()
     settings = get_settings()
-    log.info("application_started", environment=settings.APP_ENV)
+    ApplicationStarted(environment=settings.APP_ENV).emit()
     yield
-    log.info("application_shutdown")
+    ApplicationShutdown().emit()
 
 
 app = FastAPI(

@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Literal
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
@@ -13,11 +12,15 @@ from app.schemas.estimation import (
     EstimationResponse,
     StreamEstimationRequest,
 )
+from app.schemas.log import (
+    EstimateStreamFailed,
+    EstimationBlockedByInputGuardrail,
+    EstimationEndpointError,
+    EstimationRequestReceived,
+)
 from app.services.estimation import EstimationService
 from app.services.llm_service import build_system_prompt
 from app.services.llm_wrapper import LLMWrapper
-
-log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["estimations"])
 
@@ -40,33 +43,30 @@ def create_estimation(
     - Anything else from the pipeline → 502 (includes ``InstructorRetryException``
       when the model can't satisfy validators within ``max_retries``).
     """
-    log.info(
-        "estimation_request_received",
+    EstimationRequestReceived(
         project_type=request.project_type.value,
         detail_level=request.detail_level.value,
         output_format=request.output_format.value,
         description_chars=len(request.description),
         prompt_version=prompt_version,
-    )
+    ).emit()
 
     try:
         return service.estimate(request, prompt_version=prompt_version)
     except InputGuardrailViolation as exc:
-        log.info(
-            "estimation_blocked_by_input_guardrail",
+        EstimationBlockedByInputGuardrail(
             reason=exc.reason,
             message=exc.message,
-        )
+        ).emit()
         raise HTTPException(
             status_code=400,
             detail={"reason": exc.reason, "message": exc.message},
         ) from exc
     except Exception as exc:
-        log.error(
-            "estimation_endpoint_error",
-            error=str(exc)[:400],
+        EstimationEndpointError(
+            error=str(exc),
             error_type=type(exc).__name__,
-        )
+        ).emit()
         raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
 
 
@@ -97,7 +97,7 @@ async def create_estimation_stream(
             except StopIteration:
                 return None
             except Exception as exc:  # noqa: BLE001 — surface as SSE error event
-                log.error("estimate_stream_failed", error=str(exc), error_type=type(exc).__name__)
+                EstimateStreamFailed(error=str(exc), error_type=type(exc).__name__).emit()
                 raise
 
         try:

@@ -4,16 +4,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-import structlog
 from openai import OpenAI
 
 from app.config import get_settings
+from app.schemas.log import OpenAIClientDisabled
 from app.services.cache import EstimationCache
 from app.services.estimation import EstimationService
 from app.services.llm_wrapper import LLMWrapper
 from app.services.sessions import SessionStore
-
-log = structlog.get_logger()
 
 
 @lru_cache
@@ -41,7 +39,7 @@ def get_openai_client() -> OpenAI | None:
     """Lazy OpenAI client used by the input moderation guardrail."""
     settings = get_settings()
     if not settings.OPENAI_API_KEY:
-        log.warning("openai_client_disabled", reason="no_api_key")
+        OpenAIClientDisabled(reason="no_api_key").emit()
         return None
     return OpenAI(api_key=settings.OPENAI_API_KEY)
 

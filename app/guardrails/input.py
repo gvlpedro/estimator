@@ -11,14 +11,14 @@ The HTTP layer maps that to a 400 with ``{reason, message}``.
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any
 
-import structlog
-
-log = structlog.get_logger()
-
-
-Reason = Literal["moderation", "prompt_injection", "pii"]
+from app.schemas.log import (
+    GuardrailReason as Reason,
+    ModerationCallFailed,
+    ModerationFlagged,
+    PromptInjectionDetected,
+)
 
 
 class InputGuardrailViolation(Exception):
@@ -66,17 +66,16 @@ def _check_moderation(description: str, openai_client: Any) -> None:
     try:
         response = openai_client.moderations.create(input=description)
     except Exception as exc:  # noqa: BLE001 — network/auth failures fail open with a log
-        log.warning(
-            "moderation_call_failed",
+        ModerationCallFailed(
             error_type=type(exc).__name__,
             error=str(exc),
-        )
+        ).emit()
         return
 
     result = response.results[0]
     if getattr(result, "flagged", False):
         categories = _extract_flagged_categories(result)
-        log.info("moderation_flagged", categories=categories)
+        ModerationFlagged(categories=categories).emit()
         raise InputGuardrailViolation(
             f"Input flagged by moderation: {', '.join(categories) or 'unspecified'}",
             reason="moderation",
@@ -97,11 +96,10 @@ def _check_prompt_injection(description: str) -> None:
     for pattern in _PROMPT_INJECTION_PATTERNS:
         match = pattern.search(description)
         if match:
-            log.info(
-                "prompt_injection_detected",
+            PromptInjectionDetected(
                 pattern=pattern.pattern,
-                match=match.group(0)[:80],
-            )
+                match=match.group(0),
+            ).emit()
             raise InputGuardrailViolation(
                 f"Suspicious instruction-like text detected: {match.group(0)[:80]!r}",
                 reason="prompt_injection",

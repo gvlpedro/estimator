@@ -24,13 +24,23 @@ from typing import Any, Generic, Iterator, TypeVar
 
 import instructor
 import litellm
-import structlog
 from litellm import Router
 from pydantic import BaseModel
 
+from app.schemas.log import (
+    LlmCallCompleted,
+    LlmCallFailed,
+    LlmCallStarted,
+    LlmStreamCompleted,
+    LlmStreamFailed,
+    LlmStreamStarted,
+    LlmStructuredCallCompleted,
+    LlmStructuredCallFailed,
+    LlmStructuredCallStarted,
+    StreamCacheHit,
+    ThinkingBudgetIgnoredForProvider,
+)
 from app.services.cache import EstimationCache
-
-log = structlog.get_logger()
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -169,29 +179,26 @@ class LLMWrapper:
             model_override=model_override,
         )
 
-        log.info(
-            "llm_call_started",
+        LlmCallStarted(
             mode="blocking",
             model=model_override or self.primary_model,
             has_thinking=thinking_budget is not None,
-        )
+        ).emit()
         t0 = time.perf_counter()
         try:
             response = self._dispatch(model_override=model_override, **kwargs)
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            log.error(
-                "llm_call_failed",
+            LlmCallFailed(
                 error_type=type(exc).__name__,
                 error=str(exc),
                 latency_ms=latency_ms,
-            )
+            ).emit()
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         result = self._normalise_response(response, latency_ms=latency_ms)
-        log.info(
-            "llm_call_completed",
+        LlmCallCompleted(
             model=result["model"],
             provider=result["provider"],
             input_tokens=result["usage"]["input_tokens"],
@@ -199,7 +206,7 @@ class LLMWrapper:
             cost_usd=result["cost_usd"],
             latency_ms=latency_ms,
             finish_reason=result["finish_reason"],
-        )
+        ).emit()
         self.cache.set(cache_key, result)
         return {**result, "cache_hit": False}
 
@@ -230,11 +237,10 @@ class LLMWrapper:
             else self.openai_api_key
         )
 
-        log.info(
-            "llm_structured_call_started",
+        LlmStructuredCallStarted(
             model=target_model,
             response_model=response_model.__name__,
-        )
+        ).emit()
         t0 = time.perf_counter()
         try:
             result = self._instructor.chat.completions.create(
@@ -248,12 +254,11 @@ class LLMWrapper:
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            log.error(
-                "llm_structured_call_failed",
+            LlmStructuredCallFailed(
                 error_type=type(exc).__name__,
-                error=str(exc)[:400],
+                error=str(exc),
                 latency_ms=latency_ms,
-            )
+            ).emit()
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -263,12 +268,11 @@ class LLMWrapper:
             provider=_provider_from_model(target_model),
             latency_ms=latency_ms,
         )
-        log.info(
-            "llm_structured_call_completed",
+        LlmStructuredCallCompleted(
             model=completion.model,
             provider=completion.provider,
             latency_ms=completion.latency_ms,
-        )
+        ).emit()
         return completion
 
     def complete_stream(
@@ -296,7 +300,7 @@ class LLMWrapper:
         )
         cached = self.cache.get(cache_key)
         if cached:
-            log.info("stream_cache_hit", chars=len(cached.get("estimation", "")))
+            StreamCacheHit(chars=len(cached.get("estimation", ""))).emit()
             yield cached.get("estimation", "")
             return
 
@@ -312,10 +316,7 @@ class LLMWrapper:
             stream=True,
         )
 
-        log.info(
-            "llm_stream_started",
-            model=model_override or self.primary_model,
-        )
+        LlmStreamStarted(model=model_override or self.primary_model).emit()
         t0 = time.perf_counter()
         full_text: list[str] = []
         try:
@@ -327,17 +328,16 @@ class LLMWrapper:
                     yield delta
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            log.error(
-                "llm_stream_failed",
+            LlmStreamFailed(
                 error_type=type(exc).__name__,
                 error=str(exc),
                 latency_ms=latency_ms,
-            )
+            ).emit()
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         rendered = "".join(full_text)
-        log.info("llm_stream_completed", latency_ms=latency_ms, chars=len(rendered))
+        LlmStreamCompleted(latency_ms=latency_ms, chars=len(rendered)).emit()
 
         self.cache.set(
             cache_key,
@@ -378,11 +378,10 @@ class LLMWrapper:
                 kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
                 kwargs["max_tokens"] = max(max_tokens, thinking_budget + 1024)
             else:
-                log.warning(
-                    "thinking_budget_ignored_for_provider",
+                ThinkingBudgetIgnoredForProvider(
                     provider=_provider_from_model(target_model),
                     model=target_model,
-                )
+                ).emit()
         return kwargs
 
     def _dispatch(self, *, model_override: str | None, **kwargs: Any) -> Any:

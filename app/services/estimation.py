@@ -22,8 +22,6 @@ import hashlib
 import json
 from typing import Any
 
-import structlog
-
 from app.guardrails import InputGuardrailViolation, check_input, enforce_scope_response
 from app.prompts.loader import render_estimation_prompt
 from app.schemas.estimation import (
@@ -31,11 +29,10 @@ from app.schemas.estimation import (
     EstimationResponse,
     EstimationResult,
 )
+from app.schemas.log import EstimationCacheHit, EstimationGenerated
 from app.services.cache import EstimationCache
 from app.services.llm_wrapper import LLMWrapper
 from app.services.sessions import ProjectMetadata
-
-log = structlog.get_logger()
 
 __all__ = ["EstimationService", "InputGuardrailViolation"]
 
@@ -106,7 +103,7 @@ class EstimationService:
         )
         cached = self.exact_cache.get(cache_key)
         if cached:
-            log.info("estimation_cache_hit", kind="exact", key_prefix=cache_key[:24])
+            EstimationCacheHit(kind="exact", key_prefix=cache_key[:24]).emit()
             result = EstimationResult.model_validate(cached["result"])
             return EstimationResponse(result=result, prompt_version=version, cached=True)
 
@@ -120,8 +117,7 @@ class EstimationService:
             response_model=EstimationResult,
         )
         result = completion.result
-        log.info(
-            "estimation_generated",
+        EstimationGenerated(
             prompt_version=version,
             confidence_pct=result.confidence_pct,
             total_cost_eur=result.total_cost_eur,
@@ -129,7 +125,7 @@ class EstimationService:
             model=completion.model,
             provider=completion.provider,
             latency_ms=completion.latency_ms,
-        )
+        ).emit()
 
         result = enforce_scope_response(result)
 

@@ -37,9 +37,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-import structlog
-
-log = structlog.get_logger()
+from app.schemas.log import AttachmentExtracted, AttachmentExtractionFailed
 
 
 ATTACHMENT_SEPARATOR_TEMPLATE = "--- attachment: {filename} ---"
@@ -74,22 +72,20 @@ def extract_attachment_text(*, filename: str, data: bytes) -> str:
     except AttachmentExtractionError:
         raise
     except Exception as exc:  # noqa: BLE001 — wrap any parser failure
-        log.warning(
-            "attachment_extraction_failed",
+        AttachmentExtractionFailed(
             filename=filename,
             size_bytes=len(data),
-            error=str(exc)[:300],
-        )
+            error=str(exc),
+        ).emit()
         raise AttachmentExtractionError(
             f"Could not extract text from {filename!r}: {exc}"
         ) from exc
 
-    log.info(
-        "attachment_extracted",
+    AttachmentExtracted(
         filename=filename,
         size_bytes=len(data),
         text_chars=len(text),
-    )
+    ).emit()
     return text
 
 
