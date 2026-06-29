@@ -141,12 +141,20 @@ class ConversationHistory:
 
 @dataclass
 class Session:
-    """Per-conversation state: id, history, metadata and last-seen timestamp."""
+    """Per-conversation state: id, history, metadata and last-seen timestamp.
+
+    ``last_resolved_tier`` / ``last_tier_rule`` cache the most recent tier
+    resolution so the debug endpoint can surface what the resolver did without
+    re-running it. They stay ``None`` until the tier resolver writes to them
+    (not wired in this iteration; the field is here so the schema is stable).
+    """
 
     session_id: str = field(default_factory=lambda: str(uuid4()))
     history: ConversationHistory = field(default_factory=ConversationHistory)
     metadata: ProjectMetadata = field(default_factory=ProjectMetadata)
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None
 
     def touch(self) -> None:
         self.updated_at = datetime.now(timezone.utc)

@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pypdf>=4.0",
     "python-docx>=1.1",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]

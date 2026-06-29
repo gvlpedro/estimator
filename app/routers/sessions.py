@@ -43,17 +43,28 @@ class SessionCreatedResponse(BaseModel):
 
 
 class SessionStateResponse(BaseModel):
-    """Snapshot of a session: accumulated metadata + recent history.
+    """Snapshot of a session: accumulated metadata + recent history + debug counters.
 
     The metadata block reflects what the assistant has gathered so far (memory).
-    The messages list reflects the sliding-window history (recent turns) so
-    clients can render both panels and make the separation between *memory*
-    and *history* visible to the user.
+    The messages list reflects the sliding-window history (recent turns).
+
+    The debug counters expose the observability surface for the conversational
+    pipeline: how many messages are kept in the window, how many anchors the
+    compression policy has promoted, how large the rolling summary is, and the
+    last tier the resolver picked together with the rule that fired. The
+    anchor/summary counters stay at 0 and the tier fields at ``None`` until the
+    matching subsystems (compression, tier resolver) are wired in — the shape
+    is stable so the UI debug panel can render the same fields end-to-end.
     """
 
     session_id: str
     project_metadata: ProjectMetadata
     messages: list[Message]
+    message_count: int
+    anchors_count: int = 0
+    summary_chars: int = 0
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None
 
 
 @router.get("/sessions/{session_id}", response_model=SessionStateResponse)
@@ -61,18 +72,28 @@ def get_session_state(
     session_id: str = Path(description="Session id obtained from POST /api/v1/sessions."),
     store: SessionStore = Depends(get_session_store),
 ) -> SessionStateResponse:
-    """Return the current project_metadata and history for a session.
+    """Return the current memory, history and debug counters for a session.
 
-    Used by the UI to render the *memory* panel (project_metadata) and the
-    *history* panel (sliding-window messages) after each interaction.
+    Used by the UI to render the *memory* panel (project_metadata), the
+    *history* panel (sliding-window messages) and the *debug* panel
+    (message_count, anchors_count, summary_chars, last_resolved_tier,
+    last_tier_rule) after each interaction.
     """
     session = store.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+    history = session.history
+    anchors = getattr(history, "anchors", []) or []
+    summary = getattr(history, "summary", None) or ""
     return SessionStateResponse(
         session_id=session.session_id,
         project_metadata=session.metadata,
-        messages=session.history.messages,
+        messages=history.messages,
+        message_count=len(history.messages),
+        anchors_count=len(anchors),
+        summary_chars=len(summary),
+        last_resolved_tier=session.last_resolved_tier,
+        last_tier_rule=session.last_tier_rule,
     )
 
 

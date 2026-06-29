@@ -53,12 +53,20 @@ class StructuredCompletion(Generic[T]):
     ``response_model`` the caller passed in). The remaining fields are
     operational metadata about the call — useful for logging, metrics and
     dashboards, but not for the end user.
+
+    ``input_tokens`` / ``output_tokens`` / ``cost_usd`` come from the raw
+    completion exposed by Instructor's ``create_with_completion`` helper.
+    Defaults are zero so the test stubs that build this directly don't have
+    to track every observability field; in real calls all three are filled.
     """
 
     result: T
     model: str
     provider: str
     latency_ms: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 # Cost per 1M tokens (USD). Update as pricing changes.
@@ -243,7 +251,12 @@ class LLMWrapper:
         ).emit()
         t0 = time.perf_counter()
         try:
-            result = self._instructor.chat.completions.create(
+            # ``create_with_completion`` returns the parsed model AND the raw
+            # ``ModelResponse`` — needed to read ``usage`` for token counts
+            # and cost. The plain ``create`` we used before threw the raw
+            # response away, hiding tokens/cost on the very path that ACB's
+            # Actor + Critic now run through (2-3 calls per turn).
+            result, raw = self._instructor.chat.completions.create_with_completion(
                 model=target_model,
                 api_key=api_key,
                 timeout=self.timeout,
@@ -262,16 +275,25 @@ class LLMWrapper:
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        input_tokens, output_tokens = _usage_from_response(raw)
+        resolved_model = _normalise_model_name(getattr(raw, "model", target_model))
+        cost_usd = _estimate_cost(resolved_model, input_tokens, output_tokens)
         completion = StructuredCompletion(
             result=result,
-            model=_normalise_model_name(target_model),
-            provider=_provider_from_model(target_model),
+            model=resolved_model,
+            provider=_provider_from_model(resolved_model),
             latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
         )
         LlmStructuredCallCompleted(
             model=completion.model,
             provider=completion.provider,
             latency_ms=completion.latency_ms,
+            input_tokens=completion.input_tokens,
+            output_tokens=completion.output_tokens,
+            cost_usd=completion.cost_usd,
         ).emit()
         return completion
 
@@ -406,12 +428,8 @@ class LLMWrapper:
     def _normalise_response(response: Any, *, latency_ms: int) -> dict[str, Any]:
         choice = response.choices[0]
         finish_reason = (choice.finish_reason or "stop").lower()
-        usage = response.usage
-        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(usage, "completion_tokens", 0) or 0
-        total_tokens = getattr(usage, "total_tokens", input_tokens + output_tokens) or (
-            input_tokens + output_tokens
-        )
+        input_tokens, output_tokens = _usage_from_response(response)
+        total_tokens = input_tokens + output_tokens
 
         model = _normalise_model_name(response.model)
         return {
@@ -427,6 +445,21 @@ class LLMWrapper:
             "latency_ms": latency_ms,
             "cost_usd": _estimate_cost(model, input_tokens, output_tokens),
         }
+
+
+def _usage_from_response(response: Any) -> tuple[int, int]:
+    """Read (input_tokens, output_tokens) from a LiteLLM ``ModelResponse``.
+
+    Defensive against partial/missing usage blocks: every provider/transport
+    has had at least one regression around usage reporting, so we coerce to
+    zero rather than raise. Callers see zero cost when usage is missing,
+    which is more honest than a fabricated number."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0, 0
+    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    output_tokens = getattr(usage, "completion_tokens", 0) or 0
+    return int(input_tokens), int(output_tokens)
 
 
 def _extract_delta(chunk: Any) -> str:

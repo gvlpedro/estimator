@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.acb import BossTrace
+
 PreprocessingMode = Literal["none", "inline_cleaning", "two_phase"]
 ExampleFormat = Literal["markdown", "json", "narrative"]
 
@@ -123,6 +125,17 @@ class EstimationResponse(BaseModel):
     result: EstimationResult
     prompt_version: str
     cached: bool = False
+
+
+class ACBResponse(BaseModel):
+    """Actor-Critic-Boss response: same result envelope as ``EstimationResponse``
+    plus the orchestration trace so the caller can render the audit panel.
+    """
+
+    result: EstimationResult
+    prompt_version: str
+    cached: bool = False
+    acb: BossTrace
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,33 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+import yaml
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+APP_CONFIG_PATH = Path(__file__).resolve().parent / "app_config.yml"
+
+
+class ActorCriticBossConfig(BaseModel):
+    iterations: int = Field(default=2, ge=1, le=10)
+
+
+class AppConfig(BaseModel):
+    actor_critic_boss: ActorCriticBossConfig = Field(default_factory=ActorCriticBossConfig)
+
+
+class FileConfig(BaseModel):
+    app: AppConfig = Field(default_factory=AppConfig)
+
+
+@lru_cache
+def get_file_config() -> FileConfig:
+    """Load the YAML-backed app config. Falls back to defaults if the file is missing."""
+    if not APP_CONFIG_PATH.is_file():
+        return FileConfig()
+    raw = yaml.safe_load(APP_CONFIG_PATH.read_text()) or {}
+    return FileConfig.model_validate(raw)
 
 
 class Settings(BaseSettings):

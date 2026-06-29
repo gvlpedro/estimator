@@ -228,6 +228,44 @@ def test_second_turn_sees_accumulated_metadata_from_first_turn(
     assert roles == ["user", "assistant", "user", "assistant"]
 
 
+def test_get_session_exposes_debug_counters(
+    client: TestClient, session_store: SessionStore
+) -> None:
+    """The snapshot must surface the observability fields: message_count
+    computed from the sliding window, plus stable placeholders for the
+    subsystems (compression, tier resolver) not yet wired in. Without these
+    fields the UI debug panel has nothing to render."""
+    session_id = client.post("/api/v1/sessions").json()["session_id"]
+
+    fresh = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert fresh["message_count"] == 0
+    assert fresh["anchors_count"] == 0
+    assert fresh["summary_chars"] == 0
+    assert fresh["last_resolved_tier"] is None
+    assert fresh["last_tier_rule"] is None
+
+    client.post(
+        f"/api/v1/sessions/{session_id}/estimate",
+        data={"transcript": "x" * 60},
+    )
+
+    after_turn = client.get(f"/api/v1/sessions/{session_id}").json()
+    # One user + one assistant message appended on the turn.
+    assert after_turn["message_count"] == 2
+    assert after_turn["anchors_count"] == 0
+    assert after_turn["summary_chars"] == 0
+
+    # last_resolved_tier / last_tier_rule track tier-resolver writes; the
+    # resolver is not wired yet, so they remain None.
+    session = session_store.get(session_id)
+    assert session is not None
+    session.last_resolved_tier = "developer"
+    session.last_tier_rule = "default"
+    populated = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert populated["last_resolved_tier"] == "developer"
+    assert populated["last_tier_rule"] == "default"
+
+
 def test_history_evicts_oldest_pair_when_max_turns_exceeded() -> None:
     """With max_turns=2 the window holds 4 non-system messages (2 pairs).
 

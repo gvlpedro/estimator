@@ -8,6 +8,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.dependencies import get_estimation_service, get_llm_wrapper
 from app.guardrails import InputGuardrailViolation
 from app.schemas.estimation import (
+    ACBResponse,
     EstimationRequest,
     EstimationResponse,
     StreamEstimationRequest,
@@ -53,6 +54,51 @@ def create_estimation(
 
     try:
         return service.estimate(request, prompt_version=prompt_version)
+    except InputGuardrailViolation as exc:
+        EstimationBlockedByInputGuardrail(
+            reason=exc.reason,
+            message=exc.message,
+        ).emit()
+        raise HTTPException(
+            status_code=400,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        EstimationEndpointError(
+            error=str(exc),
+            error_type=type(exc).__name__,
+        ).emit()
+        raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
+
+
+@router.post("/estimate/acb", response_model=ACBResponse)
+def create_estimation_acb(
+    request: EstimationRequest,
+    prompt_version: PromptVersion = Query(
+        default="v1",
+        description="Which actor prompt family under app/prompts/estimation/ to use.",
+    ),
+    service: EstimationService = Depends(get_estimation_service),
+) -> ACBResponse:
+    """Run the structured-estimation pipeline through the Actor-Critic-Boss
+    orchestrator.
+
+    Reuses the same actor prompt as ``/estimate`` but adds an independent
+    Critic pass on every draft. The Boss either accepts the draft, asks the
+    actor to retry with the Critic's feedback, or synthesises a fallback
+    when the loop runs out of iterations. The ``acb`` field carries the full
+    audit trail for the caller to surface in a debug panel.
+    """
+    EstimationRequestReceived(
+        project_type=request.project_type.value,
+        detail_level=request.detail_level.value,
+        output_format=request.output_format.value,
+        description_chars=len(request.description),
+        prompt_version=f"acb-{prompt_version}",
+    ).emit()
+
+    try:
+        return service.estimate_with_acb(request, prompt_version=prompt_version)
     except InputGuardrailViolation as exc:
         EstimationBlockedByInputGuardrail(
             reason=exc.reason,

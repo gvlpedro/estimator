@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from openai import OpenAI
 
-from app.config import get_settings
+from app.config import get_file_config, get_settings
 from app.schemas.log import OpenAIClientDisabled
 from app.services.cache import EstimationCache
 from app.services.estimation import EstimationService
@@ -46,10 +46,12 @@ def get_openai_client() -> OpenAI | None:
 
 @lru_cache
 def get_estimation_service() -> EstimationService:
+    file_config = get_file_config()
     return EstimationService(
         llm_wrapper=get_llm_wrapper(),
         exact_cache=get_cache(),
         openai_client=get_openai_client(),
+        boss_max_iterations=file_config.app.actor_critic_boss.iterations,
     )
 
 

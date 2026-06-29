@@ -303,6 +303,36 @@ class EstimationGenerated(LogEvent):
 
 
 # ---------------------------------------------------------------------------
+# Actor-Critic-Boss orchestrator
+# ---------------------------------------------------------------------------
+
+
+class ACBRequestReceived(LogEvent):
+    event: ClassVar[str] = "acb_request_received"
+    project_type: str
+    detail_level: str
+    output_format: str
+    description_chars: int = Field(ge=0)
+    max_iterations: int = Field(ge=1)
+
+
+class ACBActorDraft(LogEvent):
+    event: ClassVar[str] = "acb_actor_draft"
+    with_critic_feedback: bool
+    issues_in_feedback: int = Field(ge=0)
+    confidence_pct: int = Field(ge=0, le=100)
+    total_cost_eur: int = Field(ge=0)
+
+
+class ACBCompleted(LogEvent):
+    event: ClassVar[str] = "acb_completed"
+    final_decision: str
+    iterations_run: int = Field(ge=1)
+    confidence_pct: int = Field(ge=0, le=100)
+    total_cost_eur: int = Field(ge=0)
+
+
+# ---------------------------------------------------------------------------
 # LLMWrapper (llamadas a litellm)
 # ---------------------------------------------------------------------------
 
@@ -348,6 +378,9 @@ class LlmStructuredCallCompleted(LogEvent):
     model: str
     provider: str
     latency_ms: int = Field(ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0)
 
 
 class LlmStructuredCallFailed(LogEvent):

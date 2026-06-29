@@ -14,7 +14,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from app.schemas.estimation import EstimationRequest
+from app.schemas.estimation import EstimationRequest, EstimationResult
 from app.schemas.log import PromptRendered
 from app.services.sessions import ProjectMetadata
 
@@ -99,3 +99,41 @@ def _metadata_has_any_field(metadata: ProjectMetadata) -> bool:
         or metadata.mentioned_technologies
         or metadata.agreed_scope
     )
+
+
+def render_critic_prompt(
+    *,
+    request: EstimationRequest,
+    result: EstimationResult,
+    project_metadata: ProjectMetadata | None = None,
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Render the (system, user) prompt pair sent to the Critic LLM.
+
+    The Critic sees the original request (description + knobs), any project
+    metadata accumulated so far, and the estimation draft under review. It
+    returns a structured ``CriticFeedback`` — never free text.
+    """
+    metadata_for_template = project_metadata or ProjectMetadata()
+    ctx = {
+        "description": request.description,
+        "project_type": request.project_type.value,
+        "detail_level": request.detail_level.value,
+        "output_format": request.output_format.value,
+        "metadata": metadata_for_template,
+        "result": result,
+    }
+    system = _env.get_template(f"critic/{version}/system.j2").render(**ctx)
+    user = _env.get_template(f"critic/{version}/user.j2").render(**ctx)
+
+    PromptRendered(
+        prompt_version=f"critic-{version}",
+        content_hash=_content_hash(system, user),
+        system_chars=len(system),
+        user_chars=len(user),
+        has_reference_projects=False,
+        n_reference_projects=0,
+        has_project_metadata=_metadata_has_any_field(metadata_for_template),
+    ).emit()
+
+    return system, user
