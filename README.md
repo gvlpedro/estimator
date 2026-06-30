@@ -57,26 +57,10 @@ curl -X POST http://localhost:8000/api/v1/estimate \
   }'
 ```
 
-## Estructura del proyecto
+## Forzar python 3.12
 
 ```
-estimator/
-├── app/
-│   ├── main.py            # Aplicacion FastAPI, health check, CORS
-│   ├── config.py           # Configuracion con Pydantic Settings
-│   ├── routers/
-│   │   └── estimations.py  # Endpoint POST /api/v1/estimate
-│   ├── services/
-│   │   └── llm_service.py  # Logica de negocio, llamadas al LLM
-│   ├── schemas/
-│   │   └── estimation.py   # Modelos Pydantic (request/response)
-│   └── context/
-│       └── examples.py     # Ejemplos de estimacion (contexto CAG)
-├── tests/
-│   └── test_health.py      # Tests basicos
-├── Dockerfile              # Build multi-stage con uv
-├── docker-compose.yml      # Configuracion para desarrollo local
-└── pyproject.toml          # Dependencias y configuracion
+uv sync --all-packages --python 3.12
 ```
 
 ## Documentacion interactiva
@@ -158,6 +142,7 @@ Hay un `Makefile` en la raiz que orquesta ambos servicios (FastAPI + Streamlit) 
 make setup   # instala uv si falta y sincroniza root + ui (workspace)
 make run     # backend en :8000 y UI en :8501 en paralelo; Ctrl-C los para
 make stop    # libera los puertos si quedan procesos
+make stress  # Ejecuta test stress
 ```
 
 `make run` es idempotente: si los puertos ya estan ocupados, los libera antes de arrancar.

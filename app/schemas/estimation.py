@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -96,15 +96,29 @@ class EstimationResult(BaseModel):
     total_duration_weeks: int = Field(ge=1, le=104)
     total_cost_eur: int = Field(ge=0, le=2_000_000)
 
-    @model_validator(mode="after")
-    def phases_sum_matches_total(self) -> "EstimationResult":
-        phase_sum = sum(p.cost_eur for p in self.phases)
-        if phase_sum != self.total_cost_eur:
-            raise ValueError(
-                f"phases sum ({phase_sum} EUR) does not match total_cost_eur "
-                f"({self.total_cost_eur} EUR); adjust either the phases or the total"
-            )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def reconcile_totals_from_phases(cls, data: Any) -> Any:
+        # Las fases son la fuente de verdad: los totales se derivan de su suma
+        # para evitar que un error de aritmética del LLM (p.ej. fases = 12_000
+        # EUR pero total = 13_000) gaste reintentos de Instructor y termine en
+        # 502. El Critic sigue detectando incoherencias semánticas de mayor
+        # nivel via `math_error`.
+        if not isinstance(data, dict):
+            return data
+        phases = data.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return data
+        cost_sum = 0
+        weeks_sum = 0
+        for phase in phases:
+            if not isinstance(phase, dict):
+                return data
+            cost_sum += int(phase.get("cost_eur", 0) or 0)
+            weeks_sum += int(phase.get("duration_weeks", 0) or 0)
+        data["total_cost_eur"] = cost_sum
+        data["total_duration_weeks"] = weeks_sum
+        return data
 
     @model_validator(mode="after")
     def low_confidence_requires_out_of_scope_prefix(self) -> "EstimationResult":

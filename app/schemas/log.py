@@ -303,6 +303,40 @@ class EstimationGenerated(LogEvent):
 
 
 # ---------------------------------------------------------------------------
+# Per-turn observability aggregate
+# ---------------------------------------------------------------------------
+
+
+CacheHitKind = Literal["none", "exact", "semantic"]
+
+
+class TurnObserved(LogEvent):
+    """Single per-turn rollup of everything observable about one estimation.
+
+    Emitted exactly once, just before returning from
+    ``EstimationService.estimate_conversational``. Pre-existing per-call
+    events (``cache_hit``, ``llm_structured_call_completed``, etc.) still
+    fire, but this aggregate lets a CSV extraction pull one row per turn
+    without joining across event types.
+    """
+
+    event: ClassVar[str] = "turn_observed"
+    turn_index: int = Field(ge=1)
+    session_id: str
+    enriched_transcript_chars: int = Field(ge=0)
+    attachments_total_chars: int = Field(ge=0)
+    messages_in_window: int = Field(ge=0)
+    anchors_count: int = Field(ge=0)
+    summary_chars: int = Field(ge=0)
+    tokens_in: int = Field(ge=0)
+    tokens_out: int = Field(ge=0)
+    cost_usd: float = Field(ge=0)
+    latency_ms: int = Field(ge=0)
+    cache_hit_kind: CacheHitKind
+    last_resolved_tier: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Actor-Critic-Boss orchestrator
 # ---------------------------------------------------------------------------
 

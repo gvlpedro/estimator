@@ -1,17 +1,28 @@
 # Top-level Makefile.
 #
-# setup: installs uv (if missing) and syncs the workspace (root + ui).
-# run:   stops anything on the target ports, then launches FastAPI and
-#        Streamlit in parallel. Re-running is safe — previous instances are
-#        killed first. Ctrl-C tears both down together.
-# stop:  kills whatever currently holds the configured ports.
+# setup:  installs uv (if missing) and syncs the workspace (root + ui).
+# run:    stops anything on the target ports, then launches FastAPI and
+#         Streamlit in parallel. Re-running is safe — previous instances are
+#         killed first. Ctrl-C tears both down together.
+# stop:   kills whatever currently holds the configured ports.
+# stress: runs the stress harness against the in-process app and writes
+#         evals/stress/results.csv + evals/stress/REPORT.md.
 
 SHELL        := /bin/bash
 BACKEND_PORT ?= 8000
 UI_PORT      ?= 8501
 PORTS        := $(BACKEND_PORT) $(UI_PORT)
 
-.PHONY: setup run stop
+STRESS_SCENARIOS        ?= growing,pivot,contradiction
+STRESS_ATTACHMENT_SIZES ?= 5KB,20KB,50KB,100KB
+STRESS_TURNS            ?= 6
+STRESS_REPEATS          ?= 3
+STRESS_LATENCY_BUDGET   ?= 8000
+STRESS_COST_BUDGET      ?= 0.05
+STRESS_OUTPUT           ?= evals/stress/results.csv
+STRESS_REPORT           ?= evals/stress/REPORT.md
+
+.PHONY: setup run stop stress
 
 setup:
 	@command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -33,3 +44,15 @@ run: stop
 	uv run streamlit run ui/streamlit_app.py --server.port $(UI_PORT) --server.headless true & ui_pid=$$!; \
 	trap "kill $$backend_pid $$ui_pid 2>/dev/null" INT TERM EXIT; \
 	while kill -0 $$backend_pid 2>/dev/null && kill -0 $$ui_pid 2>/dev/null; do sleep 1; done
+
+stress:
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv run python -m evals.stress.run \
+		--scenarios $(STRESS_SCENARIOS) \
+		--attachment-sizes $(STRESS_ATTACHMENT_SIZES) \
+		--turns $(STRESS_TURNS) \
+		--repeats $(STRESS_REPEATS) \
+		--latency-budget-ms $(STRESS_LATENCY_BUDGET) \
+		--cost-budget-usd $(STRESS_COST_BUDGET) \
+		--output $(STRESS_OUTPUT) \
+		--report $(STRESS_REPORT)

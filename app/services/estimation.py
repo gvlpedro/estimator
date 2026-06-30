@@ -22,29 +22,49 @@ import hashlib
 import json
 from typing import Any
 
+from dataclasses import dataclass
+
 from app.guardrails import InputGuardrailViolation, check_input, enforce_scope_response
 from app.prompts.loader import render_estimation_prompt
 from app.schemas.critic import CriticFeedback
 from app.schemas.estimation import (
     ACBResponse,
+    DetailLevel,
     EstimationRequest,
     EstimationResponse,
     EstimationResult,
+    OutputFormat,
+    ProjectType,
 )
 from app.schemas.log import (
     ACBActorDraft,
     ACBCompleted,
     ACBRequestReceived,
+    CacheHitKind,
     EstimationCacheHit,
     EstimationGenerated,
+    TurnObserved,
 )
 from app.services.boss import Boss
 from app.services.cache import EstimationCache
 from app.services.critic import Critic
 from app.services.llm_wrapper import LLMWrapper
-from app.services.sessions import ProjectMetadata
+from app.services.metadata_extractor import extract_project_metadata
+from app.services.sessions import ProjectMetadata, Session
 
 __all__ = ["EstimationService", "InputGuardrailViolation"]
+
+
+@dataclass(frozen=True)
+class _PipelineOps:
+    """Per-call ops captured during the structured pipeline so the per-turn
+    aggregate (TurnObserved) can roll them up without re-reading log events."""
+
+    cache_hit_kind: CacheHitKind
+    latency_ms: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
 
 
 def _exact_cache_key(
@@ -110,6 +130,22 @@ class EstimationService:
         prompt_version: str | None = None,
         project_metadata: ProjectMetadata | None = None,
     ) -> EstimationResponse:
+        response, _ops = self._run_structured_pipeline(
+            request,
+            prompt_version=prompt_version,
+            project_metadata=project_metadata,
+        )
+        return response
+
+    def _run_structured_pipeline(
+        self,
+        request: EstimationRequest,
+        *,
+        prompt_version: str | None = None,
+        project_metadata: ProjectMetadata | None = None,
+    ) -> tuple[EstimationResponse, _PipelineOps]:
+        """Run cache lookup → LLM → guardrail → cache set, returning both the
+        response and the operational counters needed for the per-turn aggregate."""
         version = prompt_version or self.prompt_version
 
         check_input(request.description, openai_client=self.openai_client)
@@ -121,7 +157,16 @@ class EstimationService:
         if cached:
             EstimationCacheHit(kind="exact", key_prefix=cache_key[:24]).emit()
             result = EstimationResult.model_validate(cached["result"])
-            return EstimationResponse(result=result, prompt_version=version, cached=True)
+            return (
+                EstimationResponse(result=result, prompt_version=version, cached=True),
+                _PipelineOps(
+                    cache_hit_kind="exact",
+                    latency_ms=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    cost_usd=0.0,
+                ),
+            )
 
         system_prompt, user_message = render_estimation_prompt(
             request, version=version, project_metadata=project_metadata
@@ -153,7 +198,88 @@ class EstimationService:
             },
         )
 
-        return EstimationResponse(result=result, prompt_version=version, cached=False)
+        return (
+            EstimationResponse(result=result, prompt_version=version, cached=False),
+            _PipelineOps(
+                cache_hit_kind="none",
+                latency_ms=completion.latency_ms,
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                cost_usd=completion.cost_usd,
+            ),
+        )
+
+    def estimate_conversational(
+        self,
+        *,
+        session: Session,
+        enriched_transcript: str,
+        attachments_total_chars: int,
+        project_type: ProjectType,
+        detail_level: DetailLevel,
+        output_format: OutputFormat,
+        prompt_version: str | None = None,
+    ) -> EstimationResponse:
+        """One full conversational turn: cache → LLM → guardrail → history →
+        metadata extractor → ``turn_observed`` event, exactly in this order.
+
+        Emits a single ``turn_observed`` event just before returning so a CSV
+        extraction over the logs gets one row per turn without joining across
+        the per-call events that still fire underneath (``cache_hit``,
+        ``llm_structured_call_completed``, ``project_metadata_updated``...).
+
+        ``attachments_total_chars`` is passed in by the caller (router) because
+        the service does not parse uploads itself; the merged text arrives via
+        ``enriched_transcript``. Passing the raw count keeps the observability
+        contract intact without dragging file IO into the service layer."""
+        request = EstimationRequest(
+            description=enriched_transcript,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+        )
+
+        response, pipeline_ops = self._run_structured_pipeline(
+            request,
+            prompt_version=prompt_version,
+            project_metadata=session.metadata,
+        )
+
+        assistant_reply_json = response.result.model_dump_json()
+        session.history.add("user", enriched_transcript)
+        session.history.add("assistant", assistant_reply_json)
+
+        new_metadata, extractor_ops = extract_project_metadata(
+            wrapper=self.llm_wrapper,
+            current=session.metadata,
+            user_message=enriched_transcript,
+            assistant_reply=assistant_reply_json,
+        )
+        session.metadata = new_metadata
+        turn_index = session.next_turn()
+        session.touch()
+
+        history = session.history
+        anchors = getattr(history, "anchors", []) or []
+        summary = getattr(history, "summary", None) or ""
+
+        TurnObserved(
+            turn_index=turn_index,
+            session_id=session.session_id,
+            enriched_transcript_chars=len(enriched_transcript),
+            attachments_total_chars=attachments_total_chars,
+            messages_in_window=len(history.messages),
+            anchors_count=len(anchors),
+            summary_chars=len(summary),
+            tokens_in=pipeline_ops.input_tokens + extractor_ops.input_tokens,
+            tokens_out=pipeline_ops.output_tokens + extractor_ops.output_tokens,
+            cost_usd=round(pipeline_ops.cost_usd + extractor_ops.cost_usd, 6),
+            latency_ms=pipeline_ops.latency_ms + extractor_ops.latency_ms,
+            cache_hit_kind=pipeline_ops.cache_hit_kind,
+            last_resolved_tier=session.last_resolved_tier,
+        ).emit()
+
+        return response
 
     def estimate_with_acb(
         self,

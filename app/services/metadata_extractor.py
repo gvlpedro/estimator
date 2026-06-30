@@ -18,9 +18,27 @@ broken extractor must never break the estimation pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from app.schemas.log import ProjectMetadataExtractionFailed, ProjectMetadataUpdated
 from app.services.llm_wrapper import LLMWrapper
 from app.services.sessions import ProjectMetadata
+
+
+@dataclass(frozen=True)
+class ExtractorOps:
+    """Operational counters for the metadata-extractor LLM call.
+
+    Returned alongside the new ``ProjectMetadata`` so the per-turn aggregate
+    (``TurnObserved``) can sum tokens / cost / latency across every LLM call
+    that fired during the turn — actor and extractor — instead of joining
+    across log events.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    latency_ms: int = 0
 
 EXTRACTOR_SYSTEM_PROMPT = """You extract structured project facts from one turn
 of a software-estimation conversation.
@@ -61,11 +79,12 @@ def extract_project_metadata(
     current: ProjectMetadata,
     user_message: str,
     assistant_reply: str,
-) -> ProjectMetadata:
-    """Return the updated ``ProjectMetadata`` for the session.
+) -> tuple[ProjectMetadata, ExtractorOps]:
+    """Return the updated ``ProjectMetadata`` and the call's ops counters.
 
-    Falls back to ``current`` and logs on any error so the caller's estimation
-    response is never blocked by the extractor.
+    Falls back to ``(current, ExtractorOps())`` on any error so the caller's
+    estimation response is never blocked by the extractor and the per-turn
+    aggregate still records zero rather than missing fields.
     """
     user_msg = (
         "## Current project_metadata (merge with this; do not drop facts)\n"
@@ -88,7 +107,7 @@ def extract_project_metadata(
             error=str(exc),
             error_type=type(exc).__name__,
         ).emit()
-        return current
+        return current, ExtractorOps()
 
     new_metadata = completion.result
     ProjectMetadataUpdated(
@@ -99,4 +118,10 @@ def extract_project_metadata(
         had_agreed_scope=bool(current.agreed_scope),
         has_agreed_scope=bool(new_metadata.agreed_scope),
     ).emit()
-    return new_metadata
+    ops = ExtractorOps(
+        input_tokens=completion.input_tokens,
+        output_tokens=completion.output_tokens,
+        cost_usd=completion.cost_usd,
+        latency_ms=completion.latency_ms,
+    )
+    return new_metadata, ops

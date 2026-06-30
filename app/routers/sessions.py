@@ -10,11 +10,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile
 from pydantic import BaseModel, Field
 
-from app.dependencies import get_estimation_service, get_llm_wrapper, get_session_store
+from app.config import get_settings
+from app.dependencies import get_estimation_service, get_session_store
 from app.guardrails import InputGuardrailViolation
 from app.schemas.estimation import (
     DetailLevel,
-    EstimationRequest,
     EstimationResponse,
     OutputFormat,
     ProjectType,
@@ -31,8 +31,6 @@ from app.services.attachments import (
     merge_transcript_and_attachments,
 )
 from app.services.estimation import EstimationService
-from app.services.llm_wrapper import LLMWrapper
-from app.services.metadata_extractor import extract_project_metadata
 from app.services.sessions import Message, ProjectMetadata, SessionStore
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
@@ -133,7 +131,6 @@ def estimate_in_session(
     output_format: OutputFormat = Form(default=OutputFormat.PHASES_TABLE),
     store: SessionStore = Depends(get_session_store),
     service: EstimationService = Depends(get_estimation_service),
-    wrapper: LLMWrapper = Depends(get_llm_wrapper),
 ) -> EstimationResponse:
     """Run an estimation inside an existing session, optionally enriched with PDFs.
 
@@ -157,6 +154,7 @@ def estimate_in_session(
     if session is None:
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
 
+    max_attachment_chars = get_settings().MAX_ATTACHMENT_CHARS
     extracted: list[tuple[str, str]] = []
     for upload in attachments or []:
         if not upload.filename:
@@ -165,12 +163,17 @@ def estimate_in_session(
         if not data:
             continue
         try:
-            markdown = extract_attachment_text(filename=upload.filename, data=data)
+            markdown = extract_attachment_text(
+                filename=upload.filename,
+                data=data,
+                max_chars=max_attachment_chars,
+            )
         except AttachmentExtractionError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         extracted.append((upload.filename, markdown))
 
     description = merge_transcript_and_attachments(transcript, extracted)
+    attachments_total_chars = sum(len(text) for _, text in extracted)
 
     SessionEstimateRequest(
         session_id=session_id,
@@ -179,15 +182,15 @@ def estimate_in_session(
         description_chars=len(description),
     ).emit()
 
-    request = EstimationRequest(
-        description=description,
-        project_type=project_type,
-        detail_level=detail_level,
-        output_format=output_format,
-    )
-
     try:
-        response = service.estimate(request, project_metadata=session.metadata)
+        return service.estimate_conversational(
+            session=session,
+            enriched_transcript=description,
+            attachments_total_chars=attachments_total_chars,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+        )
     except InputGuardrailViolation as exc:
         SessionEstimateBlockedByInputGuardrail(
             session_id=session_id,
@@ -204,17 +207,3 @@ def estimate_in_session(
             error_type=type(exc).__name__,
         ).emit()
         raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
-
-    assistant_reply_json = response.result.model_dump_json()
-    session.history.add("user", description)
-    session.history.add("assistant", assistant_reply_json)
-
-    session.metadata = extract_project_metadata(
-        wrapper=wrapper,
-        current=session.metadata,
-        user_message=description,
-        assistant_reply=assistant_reply_json,
-    )
-    session.touch()
-
-    return response

@@ -43,8 +43,9 @@ Fill the structured response with these fields:
 - `phases`: 1–8 phases, each with `name`, `duration_weeks`, `cost_eur`,
   `summary`. Commit to per-phase numbers first; the totals must reconcile.
 - `total_duration_weeks` / `total_cost_eur`: must equal the sum of phases.
-  `sum(phase.cost_eur) == total_cost_eur` is enforced by a validator — if
-  you violate it, you will be re-prompted.
+  The schema reconciles both totals from the per-phase numbers, so commit to
+  realistic phases first; whatever you write in the totals will be overwritten
+  with the phase sums.
 
 ## Detail level
 

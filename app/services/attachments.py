@@ -44,17 +44,28 @@ ATTACHMENT_SEPARATOR_TEMPLATE = "--- attachment: {filename} ---"
 
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".md", ".txt")
 
+ATTACHMENT_TRUNCATION_SUFFIX = "\n\n[...truncated at attachment cap...]"
+
 
 class AttachmentExtractionError(RuntimeError):
     """Raised when an uploaded file cannot be parsed."""
 
 
-def extract_attachment_text(*, filename: str, data: bytes) -> str:
+def extract_attachment_text(
+    *,
+    filename: str,
+    data: bytes,
+    max_chars: int | None = None,
+) -> str:
     """Return the plain-text rendering of one attachment.
 
     Dispatches on the file extension. Raises :class:`AttachmentExtractionError`
     on unknown extensions or parsing failures so the caller can map both to a
     422 without leaking the underlying stack trace.
+
+    ``max_chars`` caps the extracted text; oversize content is truncated with a
+    visible marker so the LLM (and the eval harness) can see that the document
+    was clipped. ``None`` skips the cap entirely.
     """
     suffix = Path(filename).suffix.lower()
     try:
@@ -80,6 +91,14 @@ def extract_attachment_text(*, filename: str, data: bytes) -> str:
         raise AttachmentExtractionError(
             f"Could not extract text from {filename!r}: {exc}"
         ) from exc
+
+    if max_chars is not None and len(text) > max_chars:
+        # Reserve room for the truncation marker so the final string fits the
+        # cap exactly; keep the head (likely to carry headings/intro) over the
+        # tail (often boilerplate appendices).
+        suffix_len = len(ATTACHMENT_TRUNCATION_SUFFIX)
+        keep = max(0, max_chars - suffix_len)
+        text = text[:keep] + ATTACHMENT_TRUNCATION_SUFFIX
 
     AttachmentExtracted(
         filename=filename,

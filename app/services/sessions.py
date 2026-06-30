@@ -155,9 +155,15 @@ class Session:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_resolved_tier: str | None = None
     last_tier_rule: str | None = None
+    turn_index: int = 0
 
     def touch(self) -> None:
         self.updated_at = datetime.now(timezone.utc)
+
+    def next_turn(self) -> int:
+        """Increment and return the 1-based turn counter for this session."""
+        self.turn_index += 1
+        return self.turn_index
 
 
 class SessionStore:

@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # giving the LLM enough recent context for multi-turn refinement.
     MAX_TURNS: int = 6
 
+    # Hard cap on extracted attachment text after parsing. The cap exists so
+    # a malicious or accidental 200-page upload cannot blow up the prompt
+    # budget. 60_000 chars ≈ 15 K tokens for English text — large enough to
+    # absorb a meeting transcript or a short SOW, small enough to leave the
+    # actor with room to think. Stress tests verify the truncation kicks in
+    # at the boundary.
+    MAX_ATTACHMENT_CHARS: int = 60_000
+
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":
         """LiteLLM may try either provider via fallback, so we require at least one key."""

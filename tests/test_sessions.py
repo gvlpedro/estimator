@@ -21,13 +21,23 @@ from app.dependencies import (
 )
 from app.main import app
 from app.schemas.estimation import (
+    DetailLevel,
     EstimationRequest,
     EstimationResponse,
     EstimationResult,
+    OutputFormat,
     Phase,
+    ProjectType,
 )
+from app.schemas.log import TurnObserved
 from app.services.llm_wrapper import StructuredCompletion
-from app.services.sessions import ConversationHistory, ProjectMetadata, SessionStore
+from app.services.metadata_extractor import extract_project_metadata
+from app.services.sessions import (
+    ConversationHistory,
+    ProjectMetadata,
+    Session,
+    SessionStore,
+)
 
 
 def _valid_result() -> EstimationResult:
@@ -55,10 +65,18 @@ def _valid_result() -> EstimationResult:
 
 
 class _StubEstimationService:
-    """Stand-in for EstimationService that records calls and returns a canned response."""
+    """Stand-in for EstimationService that records calls and returns a canned response.
 
-    def __init__(self) -> None:
+    Mirrors the real service's split of responsibilities: ``estimate`` produces
+    the structured response, ``estimate_conversational`` does the per-turn
+    orchestration (history append + metadata extraction + ``turn_observed``)
+    so the router stays thin. The orchestration here intentionally goes
+    through the same helpers as the real service so the test stub does not
+    diverge from production logic — only the LLM-facing calls are stubbed."""
+
+    def __init__(self, wrapper: "_StubLLMWrapper") -> None:
         self.calls: list[dict] = []
+        self._wrapper = wrapper
 
     def estimate(
         self,
@@ -74,6 +92,54 @@ class _StubEstimationService:
             }
         )
         return EstimationResponse(result=_valid_result(), prompt_version="v1", cached=False)
+
+    def estimate_conversational(
+        self,
+        *,
+        session: Session,
+        enriched_transcript: str,
+        attachments_total_chars: int,
+        project_type: ProjectType,
+        detail_level: DetailLevel,
+        output_format: OutputFormat,
+        prompt_version: str | None = None,
+    ) -> EstimationResponse:
+        request = EstimationRequest(
+            description=enriched_transcript,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+        )
+        response = self.estimate(request, project_metadata=session.metadata)
+        assistant_reply_json = response.result.model_dump_json()
+        session.history.add("user", enriched_transcript)
+        session.history.add("assistant", assistant_reply_json)
+        new_metadata, extractor_ops = extract_project_metadata(
+            wrapper=self._wrapper,
+            current=session.metadata,
+            user_message=enriched_transcript,
+            assistant_reply=assistant_reply_json,
+        )
+        session.metadata = new_metadata
+        turn_index = session.next_turn()
+        session.touch()
+        history = session.history
+        TurnObserved(
+            turn_index=turn_index,
+            session_id=session.session_id,
+            enriched_transcript_chars=len(enriched_transcript),
+            attachments_total_chars=attachments_total_chars,
+            messages_in_window=len(history.messages),
+            anchors_count=0,
+            summary_chars=0,
+            tokens_in=extractor_ops.input_tokens,
+            tokens_out=extractor_ops.output_tokens,
+            cost_usd=round(extractor_ops.cost_usd, 6),
+            latency_ms=extractor_ops.latency_ms,
+            cache_hit_kind="exact" if response.cached else "none",
+            last_resolved_tier=session.last_resolved_tier,
+        ).emit()
+        return response
 
 
 class _StubLLMWrapper:
@@ -107,11 +173,6 @@ def session_store() -> SessionStore:
 
 
 @pytest.fixture
-def stub_service() -> _StubEstimationService:
-    return _StubEstimationService()
-
-
-@pytest.fixture
 def stub_wrapper() -> _StubLLMWrapper:
     return _StubLLMWrapper(
         metadata=ProjectMetadata(
@@ -121,6 +182,11 @@ def stub_wrapper() -> _StubLLMWrapper:
             agreed_scope="Inventory SaaS with auth, dashboard and Stripe billing.",
         )
     )
+
+
+@pytest.fixture
+def stub_service(stub_wrapper: _StubLLMWrapper) -> _StubEstimationService:
+    return _StubEstimationService(wrapper=stub_wrapper)
 
 
 @pytest.fixture
@@ -264,6 +330,57 @@ def test_get_session_exposes_debug_counters(
     populated = client.get(f"/api/v1/sessions/{session_id}").json()
     assert populated["last_resolved_tier"] == "developer"
     assert populated["last_tier_rule"] == "default"
+
+
+def test_turn_observed_event_carries_all_required_fields(
+    client: TestClient, session_store: SessionStore
+) -> None:
+    """A CSV extraction over the logs needs ONE event per turn that already
+    carries every observable field. ``turn_observed`` must fire exactly once
+    per session estimate and include every contract field — turn index,
+    transcript and attachment sizes, history counters, token/cost rollup,
+    cache kind, and the placeholder tier."""
+    import structlog
+    from structlog.testing import capture_logs
+
+    structlog.reset_defaults()
+
+    session_id = client.post("/api/v1/sessions").json()["session_id"]
+    session_store.get(session_id).last_resolved_tier = "developer"
+
+    transcript = "Build a billing dashboard. " * 5
+    with capture_logs() as logs:
+        client.post(
+            f"/api/v1/sessions/{session_id}/estimate",
+            data={"transcript": transcript},
+        )
+
+    turn_events = [e for e in logs if e.get("event") == "turn_observed"]
+    assert len(turn_events) == 1, f"expected one turn_observed event, got {len(turn_events)}"
+    ev = turn_events[0]
+    assert ev["turn_index"] == 1
+    assert ev["session_id"] == session_id
+    assert ev["enriched_transcript_chars"] == len(transcript)
+    assert ev["attachments_total_chars"] == 0
+    assert ev["messages_in_window"] == 2  # user + assistant
+    assert ev["anchors_count"] == 0
+    assert ev["summary_chars"] == 0
+    assert ev["tokens_in"] >= 0
+    assert ev["tokens_out"] >= 0
+    assert ev["cost_usd"] >= 0
+    assert ev["latency_ms"] >= 0
+    assert ev["cache_hit_kind"] in {"none", "exact", "semantic"}
+    assert ev["last_resolved_tier"] == "developer"
+
+    # A second turn increments the index and grows the window.
+    with capture_logs() as logs2:
+        client.post(
+            f"/api/v1/sessions/{session_id}/estimate",
+            data={"transcript": transcript + " second turn"},
+        )
+    second = next(e for e in logs2 if e.get("event") == "turn_observed")
+    assert second["turn_index"] == 2
+    assert second["messages_in_window"] == 4
 
 
 def test_history_evicts_oldest_pair_when_max_turns_exceeded() -> None:
