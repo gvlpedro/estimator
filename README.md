@@ -261,6 +261,61 @@ Decidimos usar un LLM en vez de patrones regulares o NER porque la extraccion ne
 
 El coste asumido es claro: una segunda llamada por turno (modelo pequeno, prompt corto, respuesta estructurada) y la posibilidad de que la extraccion falle. Mitigamos lo segundo capturando cualquier excepcion del extractor y conservando el metadata previo, asi un fallo del extractor nunca tira la estimacion principal.
 
+## Sesion 7 — Embedding pipeline (servicio_ia)
+
+Primer paso hacia RAG: un servicio FastAPI independiente (`servicio_ia/`) que trocea presupuestos historicos normalizados (`data/budgets_sample.json`, 15 presupuestos / 63 componentes) y los vectoriza con `text-embedding-3-small` (dimension por defecto, 1536).
+
+- **Chunking estructural** (`JSONStructuralChunker`): un componente del presupuesto = un chunk, con el contexto del presupuesto padre prependido como *contextual chunk header*. Sin overlap ni splitting.
+- **Embedder** (`OpenAIEmbedder`): llamadas en batches de 100, reintento exponencial ante rate limits (1s/2s/4s), logging estructurado por batch y coste estimado ($0.02 por millon de tokens de entrada).
+- **Sin numpy ni scikit-learn**: la similitud coseno se calcula a mano con la biblioteca estandar (`scripts/compare.py`).
+
+### Levantar el servicio IA
+
+Con Docker (requiere rebuild la primera vez para instalar `tiktoken`):
+
+```bash
+docker compose up --build servicio_ia
+```
+
+En local sin Docker (desde la raiz del repo):
+
+```bash
+uv sync
+uv run --env-file .env uvicorn app.main:app --port 8001 --app-dir servicio_ia
+```
+
+Swagger UI: `http://localhost:8001/docs`.
+
+### Invocar el endpoint de ingesta
+
+`POST /embeddings/ingest` recibe `{"budgets": [...]}` y devuelve los chunks vectorizados mas las estadisticas del run (`total_budgets`, `total_chunks`, `total_tokens`, `estimated_cost_usd`):
+
+```bash
+python3 -c "import json; json.dump({'budgets': json.load(open('servicio_ia/data/budgets_sample.json'))}, open('/tmp/ingest.json','w'))"
+
+curl -X POST http://localhost:8001/embeddings/ingest \
+  -H "Content-Type: application/json" \
+  -d @/tmp/ingest.json | python3 -m json.tool | head -30
+```
+
+Un payload que viole los invariantes del dataset (totales que no cuadran, dependencias fantasma, sector desconocido) devuelve **422** sin llegar a tocar la API de embeddings. Un error no controlado del proveedor devuelve **500** con mensaje generico (el detalle queda en los logs).
+
+### Correr compare.py (sanity check de embeddings)
+
+Fuera del contenedor, desde la raiz del repo:
+
+```bash
+uv run --env-file .env python servicio_ia/scripts/compare.py
+```
+
+Dentro del contenedor (el servicio debe estar levantado):
+
+```bash
+docker compose exec servicio_ia python scripts/compare.py
+```
+
+El script embebe tres parejas de chunks y verifica que el orden de similitud coseno respete la semantica esperada (near-duplicates > relacionados > sin relacion). Resultados y comentario en `servicio_ia/app/embedding_pipeline/SANITY_CHECK.md`.
+
 ---
 
 > Este proyecto forma parte del **Master en AI Engineering** y servira como base para evolucionar hacia una arquitectura RAG con base de datos vectorial en modulos posteriores.
