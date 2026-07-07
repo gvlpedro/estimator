@@ -7,11 +7,15 @@
 # stop:   kills whatever currently holds the configured ports.
 # stress: runs the stress harness against the in-process app and writes
 #         evals/stress/results.csv + evals/stress/REPORT.md.
+# docker_run: idempotent Docker bring-up of backend + servicio_ia + ui
+#         (stops previous stack and stray port holders first), then prints
+#         how to reach each service.
 
-SHELL        := /bin/bash
-BACKEND_PORT ?= 8000
-UI_PORT      ?= 8501
-PORTS        := $(BACKEND_PORT) $(UI_PORT)
+SHELL            := /bin/bash
+BACKEND_PORT     ?= 8000
+UI_PORT          ?= 8501
+SERVICIO_IA_PORT ?= 8001
+PORTS            := $(BACKEND_PORT) $(UI_PORT) $(SERVICIO_IA_PORT)
 
 STRESS_SCENARIOS        ?= growing,pivot,contradiction
 STRESS_ATTACHMENT_SIZES ?= 5KB,20KB,50KB,100KB
@@ -22,19 +26,24 @@ STRESS_COST_BUDGET      ?= 0.05
 STRESS_OUTPUT           ?= evals/stress/results.csv
 STRESS_REPORT           ?= evals/stress/REPORT.md
 
-.PHONY: setup run stop stress
+.PHONY: setup run stop stress docker_run
 
 setup:
 	@command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 	@PATH="$$HOME/.local/bin:$$PATH" uv sync --all-packages
 
+# Never kill Docker Desktop's own processes: on macOS the published container
+# ports are held by com.docker.backend, and kill -9 on it takes down the whole
+# Docker daemon. Container ports are released via `docker compose down`.
 stop:
 	@for p in $(PORTS); do \
-		pids=$$(lsof -ti tcp:$$p 2>/dev/null); \
-		if [ -n "$$pids" ]; then \
-			echo "Stopping PIDs on :$$p — $$pids"; \
-			kill -9 $$pids 2>/dev/null || true; \
-		fi; \
+		for pid in $$(lsof -ti tcp:$$p 2>/dev/null); do \
+			name=$$(ps -p $$pid -o comm= 2>/dev/null); \
+			case "$$name" in \
+				*[Dd]ocker*) echo "Skipping Docker process $$pid ($$name) on :$$p";; \
+				*) echo "Stopping PID $$pid ($$name) on :$$p"; kill -9 $$pid 2>/dev/null || true;; \
+			esac; \
+		done; \
 	done
 
 run: stop
@@ -44,6 +53,36 @@ run: stop
 	uv run streamlit run ui/streamlit_app.py --server.port $(UI_PORT) --server.headless true & ui_pid=$$!; \
 	trap "kill $$backend_pid $$ui_pid 2>/dev/null" INT TERM EXIT; \
 	while kill -0 $$backend_pid 2>/dev/null && kill -0 $$ui_pid 2>/dev/null; do sleep 1; done
+
+# Idempotent Docker bring-up: frees the published ports from stray local
+# processes, tears down any previous compose stack, rebuilds and starts the
+# backend (app), the AI service (servicio_ia) and the UI, then waits for
+# their health endpoints before printing how to reach each service.
+# Order matters: compose down FIRST (it releases the ports Docker holds),
+# THEN stop (it clears stray local processes only — Docker's are skipped).
+docker_run:
+	@docker compose down --remove-orphans
+	@$(MAKE) stop
+	@docker compose up --build --detach
+	@echo "Waiting for services to become healthy..."
+	@for i in $$(seq 1 60); do \
+		backend=$$(curl -sf -o /dev/null http://localhost:$(BACKEND_PORT)/health && echo ok || echo ko); \
+		ia=$$(curl -sf -o /dev/null http://localhost:$(SERVICIO_IA_PORT)/health && echo ok || echo ko); \
+		ui=$$(curl -sf -o /dev/null http://localhost:$(UI_PORT)/_stcore/health && echo ok || echo ko); \
+		if [ "$$backend$$ia$$ui" = "okokok" ]; then break; fi; \
+		sleep 2; \
+	done; \
+	echo ""; \
+	echo "=========================================================="; \
+	echo "  Servicios levantados:"; \
+	echo "  Backend (app)  [$$backend]  http://localhost:$(BACKEND_PORT)  —  Swagger: http://localhost:$(BACKEND_PORT)/docs"; \
+	echo "  Servicio IA    [$$ia]  http://localhost:$(SERVICIO_IA_PORT)  —  Swagger: http://localhost:$(SERVICIO_IA_PORT)/docs"; \
+	echo "  UI (Streamlit) [$$ui]  http://localhost:$(UI_PORT)"; \
+	echo "  Redis                localhost:6379 (interno)"; \
+	echo "=========================================================="; \
+	if [ "$$backend$$ia$$ui" != "okokok" ]; then \
+		echo "  AVISO: algun servicio no responde aun (ko). Revisa: docker compose logs -f"; \
+	fi
 
 stress:
 	@export PATH="$$HOME/.local/bin:$$PATH"; \

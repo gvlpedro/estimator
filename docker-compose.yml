@@ -40,10 +40,35 @@ services:
       start_period: 10s
       retries: 3
 
+  # Streamlit UI (frontal). Same image as the backend; talks to the estimator
+  # service through the compose network, not localhost.
+  ui:
+    build: .
+    container_name: estimator-ui
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      ESTIMATOR_API_BASE_URL: http://estimator:8000
+    depends_on:
+      estimator:
+        condition: service_healthy
+    volumes:
+      - ./ui:/app/ui
+    command: streamlit run ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
   # AI service (Session 07): embedding pipeline for historical budgets.
-  # Reuses the same image (deps come from the root pyproject.toml); the code
-  # is bind-mounted and the working dir switched so `app.main` resolves to
-  # servicio_ia/app instead of the estimator's app/.
+  # Reuses the same image; the working dir switch makes `app.main` resolve to
+  # servicio_ia/app instead of the estimator's app/. The bind mount enables
+  # --reload during development.
   servicio_ia:
     build: .
     container_name: servicio-ia
@@ -51,9 +76,9 @@ services:
       - "8001:8001"
     env_file:
       - .env
-    working_dir: /servicio_ia
+    working_dir: /app/servicio_ia
     volumes:
-      - ./servicio_ia:/servicio_ia
+      - ./servicio_ia:/app/servicio_ia
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
     restart: unless-stopped
     healthcheck:

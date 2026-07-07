@@ -13,12 +13,14 @@ WORKDIR /app
 
 # Copy dependency manifests first. Docker caches each layer, so dependencies
 # are only reinstalled when pyproject.toml or uv.lock actually change.
+# ui/pyproject.toml is needed because ui is a uv workspace member.
 COPY pyproject.toml uv.lock* ./
+COPY ui/pyproject.toml ui/
 
 # Install production dependencies only (no dev tools like pytest/ruff).
-# --no-install-project skips installing our own package (we just need deps).
-# uv will generate the lockfile if it doesn't exist yet.
-RUN uv sync --no-install-project --no-dev
+# --all-packages pulls the deps of every workspace member (root + ui);
+# --no-install-workspace skips installing our own packages (we just need deps).
+RUN uv sync --all-packages --no-install-workspace --no-dev
 
 
 # =============================================================================
@@ -38,8 +40,12 @@ WORKDIR /app
 # Bring in the pre-built virtual environment from the builder stage.
 COPY --from=builder /app/.venv /app/.venv
 
-# Copy application source code.
+# Copy application source code: estimator backend, Streamlit UI and the AI
+# service. One image serves the three containers (compose overrides command
+# and working dir per service).
 COPY app/ /app/app/
+COPY ui/ /app/ui/
+COPY servicio_ia/ /app/servicio_ia/
 
 # Ensure the non-root user owns everything it needs to run.
 RUN chown -R appuser:appgroup /app
