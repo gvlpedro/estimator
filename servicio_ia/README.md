@@ -1,33 +1,5 @@
 # Servicio IA — Embedding pipeline
 
-Servicio FastAPI independiente que trocea presupuestos históricos normalizados y los vectoriza con `text-embedding-3-small` (OpenAI, dimensión por defecto 1536). Es el primer paso hacia la arquitectura RAG del estimador.
-
-```
-servicio_ia/
-├── app/
-│   ├── main.py                  # entrypoint FastAPI (puerto 8001)
-│   └── embedding_pipeline/
-│       ├── schemas.py           # contratos Pydantic (Budget, Chunk, Ingest*)
-│       ├── chunker.py           # JSONStructuralChunker: 1 componente = 1 chunk
-│       ├── embedder.py          # OpenAIEmbedder: batches, retries, coste
-│       ├── router.py            # POST /ingest
-│       └── SANITY_CHECK.md      # resultados del sanity check de embeddings
-├── scripts/
-│   └── compare.py               # similitud coseno a mano (stdlib, sin numpy)
-└── data/
-    └── budgets_sample.json      # 15 presupuestos / 63 componentes
-```
-
-Requisito: `OPENAI_API_KEY` en el `.env` de la raíz del repo.
-
-## Arrancar el servicio
-
-**Stack completa con Docker (backend + servicio_ia + ui + redis):**
-
-```bash
-make docker_run        # idempotente: para lo anterior y rearranca
-```
-
 **Solo este servicio con Docker:**
 
 ```bash
@@ -85,13 +57,6 @@ Respuesta (resumida):
     "estimated_cost_usd": 0.00012032
   }
 }
-```
-
-Códigos de estado:
-
-- **200** — ingesta completada.
-- **422** — el payload viola los invariantes del dataset (totales que no cuadran con la suma de componentes, dependencias a componentes inexistentes, sector fuera del vocabulario cerrado). Se rechaza ANTES de tocar la API de embeddings.
-- **500** — error no controlado del proveedor de embeddings. El cliente recibe un mensaje genérico; el detalle queda en los logs (`embedding_ingest_failed`).
 
 ## Sanity check de embeddings (compare.py)
 
