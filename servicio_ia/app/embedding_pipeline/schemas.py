@@ -88,22 +88,55 @@ class EmbeddedChunk(Chunk):
 
 
 class IngestRequest(BaseModel):
-    """Payload accepted by the ingest endpoint: budgets to chunk and embed."""
+    """Payload accepted by the ingest endpoint: one document to persist.
 
-    budgets: list[Budget] = Field(min_length=1)
+    ``content`` is the full normalized budget JSON; validating it as a
+    ``Budget`` keeps the 422-on-malformed-input behavior of the old contract.
+    """
 
-
-class IngestStats(BaseModel):
-    """Aggregate metrics of one ingest run."""
-
-    total_budgets: int = Field(ge=0)
-    total_chunks: int = Field(ge=0)
-    total_tokens: int = Field(ge=0)
-    estimated_cost_usd: float = Field(ge=0)
+    source_path: str = Field(min_length=1, max_length=500)
+    document_type: str = Field(min_length=1, max_length=50)
+    content: Budget
 
 
 class IngestResponse(BaseModel):
-    """Ingest endpoint output: embedded chunks plus run statistics."""
+    """Ingest endpoint output: identifiers and metrics, never the vectors."""
 
-    chunks: list[EmbeddedChunk]
-    stats: IngestStats
+    document_id: int
+    chunks_created: int = Field(ge=1)
+    embedding_dimension: int = Field(ge=1)
+    ingestion_time_ms: int = Field(ge=0)
+
+
+class IngestConflict(BaseModel):
+    """409 body when the source_path was already ingested."""
+
+    detail: str
+    document_id: int
+
+
+class SearchRequest(BaseModel):
+    """Payload accepted by the search endpoint: free-text query + result count."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    k: int = Field(default=5, ge=1, le=50)
+
+
+class SearchResult(BaseModel):
+    """One retrieved chunk with its cosine distance to the query (lower = closer)."""
+
+    chunk_id: int
+    document_id: int
+    chunk_type: str
+    content: str
+    distance: float
+    metadata: dict[str, Any]
+
+
+class SearchResponse(BaseModel):
+    """Search endpoint output: the echoed query plus the k nearest chunks."""
+
+    query: str
+    k: int
+    search_time_ms: int
+    results: list[SearchResult]

@@ -7,6 +7,7 @@ import structlog
 from fastapi import FastAPI
 
 from app.embedding_pipeline.router import router as embeddings_router
+from app.embedding_pipeline.router import search_router
 
 
 def configure_logging() -> None:
@@ -51,6 +52,7 @@ app = FastAPI(
 )
 
 app.include_router(embeddings_router, prefix="/embeddings")
+app.include_router(search_router)
 
 
 @app.get("/health")

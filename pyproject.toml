@@ -24,6 +24,10 @@ dependencies = [
     "pyyaml>=6.0",
     "reportlab>=4.0",
     "tiktoken>=0.7.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    "alembic>=1.13",
 ]
 
 [dependency-groups]

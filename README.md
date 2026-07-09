@@ -274,7 +274,7 @@ Primer paso hacia RAG: un servicio FastAPI independiente (`servicio_ia/`) que tr
 Con Docker (requiere rebuild la primera vez para instalar `tiktoken`):
 
 ```bash
-docker compose up --build servicio_ia
+docker compose up --build ai_service
 ```
 
 En local sin Docker (desde la raiz del repo):
@@ -315,6 +315,25 @@ docker compose exec servicio_ia python scripts/compare.py
 ```
 
 El script embebe tres parejas de chunks y verifica que el orden de similitud coseno respete la semantica esperada (near-duplicates > relacionados > sin relacion). Resultados y comentario en `servicio_ia/app/embedding_pipeline/SANITY_CHECK.md`.
+
+## Sesion 8 — Vector store con pgvector y busqueda semantica
+
+El servicio IA persiste ahora los embeddings en Postgres con la extension `pgvector` (imagen `pgvector/pgvector:pg16` en el compose, schema gestionado con Alembic). Esto cambia dos cosas respecto a la Sesion 7:
+
+- `POST /embeddings/ingest` ya no devuelve los vectores: persiste documento + chunks en una transaccion unica y responde con identificadores y metricas. Nuevo endpoint `POST /search` de busqueda semantica por distancia coseno.
+- `scripts/compare.py` se reemplaza por `query_examples.py` (`docker compose run --rm ai_service python query_examples.py`), que ejercita `POST /search` con cinco queries representativas; el output de un run contra el corpus de ejemplo esta en `servicio_ia/output_examples.txt`. El servicio compose pasa a llamarse `ai_service`.
+
+Contratos, ejemplos y detalles operativos: [`servicio_ia/README.md`](servicio_ia/README.md).
+
+### Vector schema decisions
+
+**Por que dos tablas (`documents` y `chunks`) y no una.** Un presupuesto produce N chunks. Una sola tabla con la metadata del documento duplicada en cada fila pierde integridad referencial y duplica datos. Con dos tablas y `ON DELETE CASCADE`, eliminar un presupuesto elimina automaticamente todos sus chunks.
+
+**Por que `metadata` como JSONB y no columnas.** La metadata estable (tipo de documento, tipo de chunk, fechas) va en columnas tipadas; la variable o que el chunker puede enriquecer (tags, scope, tecnologias mencionadas) va en JSONB. El indice GIN sobre el JSONB permite consultar por claves arbitrarias sin migrar el schema cada vez que el chunker aprende a extraer un campo nuevo.
+
+**Por que `cosine_distance` y no L2 ni inner product.** Los embeddings de OpenAI vienen normalizados (norma 1), y sobre vectores unitarios las tres metricas producen el mismo ranking: la L2 es monotona con la coseno y el inner product es su complemento. La eleccion no va de calidad de resultados, va de consistencia: coseno es la convencion dominante en la literatura RAG, y el indice HNSW que se anadira en el directo usara la operator class `vector_cosine_ops`. Esa alineacion importa: si la query usa un operador y el indice esta construido con otra operator class, Postgres ignora el indice y cae a sequential scan **sin avisar**.
+
+**Por que deliberadamente no hay indice vectorial todavia.** Sin indice, Postgres hace sequential scan: busqueda exacta con recall perfecto. Para el volumen del corpus del programa (decenas de documentos, cientos de chunks) eso responde en pocos ms — la latencia del endpoint la domina el embedding de la query, no la busqueda. Un indice ANN como HNSW introduce parametros de construccion y un trade-off de recall que a esta escala no compran nada. Ademas, observar la latencia sin indice es la linea base del directo: el indice se anade en vivo, cuando su efecto se puede medir.
 
 ---
 

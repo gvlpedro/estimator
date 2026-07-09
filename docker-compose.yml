@@ -69,13 +69,23 @@ services:
   # Reuses the same image; the working dir switch makes `app.main` resolve to
   # servicio_ia/app instead of the estimator's app/. The bind mount enables
   # --reload during development.
-  servicio_ia:
+  ai_service:
     build: .
     container_name: servicio-ia
     ports:
       - "8001:8001"
     env_file:
       - .env
+    # DATABASE_URL points at the in-network postgres service. When running
+    # uvicorn outside Docker, use localhost:5432 instead.
+    # SERVICIO_IA_BASE_URL is consumed by query_examples.py in one-off
+    # containers (docker compose run), where localhost is NOT the API.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://estimator:estimator@postgres:5432/estimator
+      SERVICIO_IA_BASE_URL: http://ai_service:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
     working_dir: /app/servicio_ia
     volumes:
       - ./servicio_ia:/app/servicio_ia
@@ -87,6 +97,26 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # Postgres 16 with the pgvector extension precompiled (official pgvector
+  # image). The extension itself is enabled with CREATE EXTENSION vector.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: estimator-postgres
+    environment:
+      POSTGRES_DB: estimator
+      POSTGRES_USER: estimator
+      POSTGRES_PASSWORD: estimator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estimator -d estimator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -104,3 +134,4 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:

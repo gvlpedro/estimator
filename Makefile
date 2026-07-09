@@ -54,6 +54,12 @@ run: stop
 	trap "kill $$backend_pid $$ui_pid 2>/dev/null" INT TERM EXIT; \
 	while kill -0 $$backend_pid 2>/dev/null && kill -0 $$ui_pid 2>/dev/null; do sleep 1; done
 
+start_alembic:
+	alembic init -t async alembic
+	echo "Delete folder alembic/ and alembic.ini to reinitialize the migration environment."
+	echo "Configuration is included in env.py and /versions, then you can use 'alembic upgrade head' to start"
+	echo "Execute 'alembic history' to check migrations"
+
 # Idempotent Docker bring-up: frees the published ports from stray local
 # processes, tears down any previous compose stack, rebuilds and starts the
 # backend (app), the AI service (servicio_ia) and the UI, then waits for
@@ -83,6 +89,9 @@ docker_run:
 	if [ "$$backend$$ia$$ui" != "okokok" ]; then \
 		echo "  AVISO: algun servicio no responde aun (ko). Revisa: docker compose logs -f"; \
 	fi
+
+docker_check:
+	docker compose exec postgres psql -U estimator -d estimator -c "SELECT version();"
 
 stress:
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
