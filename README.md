@@ -338,3 +338,70 @@ Contratos, ejemplos y detalles operativos: [`servicio_ia/README.md`](servicio_ia
 ---
 
 > Este proyecto forma parte del **Master en AI Engineering** y servira como base para evolucionar hacia una arquitectura RAG con base de datos vectorial en modulos posteriores.
+
+
+# INDEX VECTORS
+
+## IVFFlat: Clusters de información
+
+No, pero es especialmente adecuado cuando:
+
+tienes un conjunto de datos bastante estable,
+haces muchas más búsquedas que inserciones,
+puedes permitirte reconstruir el índice periódicamente.
+
+Por ejemplo:
+
+Un catálogo de productos que cambia poco.
+Una base documental que se actualiza una vez al día.
+Un histórico de artículos.
+¿Y HNSW?
+
+## HNSW: Multiples capas de información
+
+recibes documentos continuamente,
+tienes un sistema RAG donde se indexan archivos nuevos todo el día,
+los embeddings cambian con frecuencia.
+
+Por eso la mayoría de bases de datos vectoriales modernas lo usan como opción por defecto.
+
+# OPERATOR CLASS
+
+Cómo debe funcionar un índice para un determinado tipo de dato.
+
+```sql
+CREATE INDEX idx_embedding
+ON documentos
+USING hnsw (
+    embedding vector_cosine_ops
+);
+```
+
+* vector_cosine_ops: Mide el ángulo entre dos vectores para RAG, búsqueda semántica y recuperación de información. Es útil cuando se desea encontrar elementos similares en un espacio vectorial, como en sistemas de recomendación, búsqueda de imágenes o procesamiento de lenguaje natural.
+* vector_ip_ops: Mide el producto escalar, Ranking o sistemas de recomendación, búsqueda de imágenes 
+* vector_l2_ops: Mide la distancia euclidiana, Clustering, clasificación y análisis de datos
+* vector_l1_ops: Mide la distancia Manhattan, Análisis de datos, detección de anomalías y sistemas de recomendación
+
+USA EL MISMO OPERATOR PARA GENERAR EL EMBEDING Y PARA EL INDICE
+(Usa una operator class que corresponda con la métrica de similitud para la que fue diseñado el modelo de embeddings.)
+
+
+# Ajustando la calidad de búsqueda en HNSW
+
+Recall es una métrica que mide cuántos de los resultados correctos has conseguido recuperar. Ejemplo:
+  De los 5 documentos correctos, ha recuperado 3/5 = 60% de recall
+Muchas empresas crean un conjunto de preguntas conocidas para calcular el valor de recall.
+
+ef_search es uno de los parámetros más importantes de HNSW. Controla el esfuerzo que hace el algoritmo durante una búsqueda.
+* Cuanto mayor sea ef_search, más nodos del grafo explora HNSW antes de devolver el resultado.
+* Un valor más alto de ef_search generalmente conduce a una mayor precisión en la búsqueda, ya que el algoritmo tiene más oportunidades de encontrar los vecinos más cercanos.
+* Sin embargo, un ef_search más alto también puede aumentar el tiempo de búsqueda, la latencia y el uso de memoria
+
+La idea es hacer un script cada cierto tiempo ajustando el ef_search midiendo el recall y eficiencia
+
+
+
+![indice hnsw](doc/indice_hnsw_producción.png)
+![halvec](doc/halfvec.png)
+![adoptar_halfvec](doc/adoptar_halfvec.png)
+![manteniendo_bdd_vectorial](doc/manteniendo_bdd_vectorial.png)
