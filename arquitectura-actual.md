@@ -1,12 +1,7 @@
 # Arquitectura actual y diagnóstico — Pre-work Sesión 09
 
-**TL;DR**: el servicio IA embebe, persiste y busca chunks de presupuestos históricos correctamente, pero una transcripción real **no tiene puerta de entrada**: `/search` la rechaza por longitud (422), truncarla amputa requisitos, la consulta monolítica comprime las distancias (banda de 0.047 entre 15 resultados) y nadie consume los chunks devueltos — no existe generación ni conexión con el backend de negocio. La pieza más crítica que falta es un extractor de necesidades que convierta la transcripción en consultas estructuradas.
 
----
-
-## 1. Diagrama de la arquitectura actual (cierre Sesión 08)
-
-Las tres capas existen pero **no están conectadas entre sí en el flujo de estimación**: el backend de negocio no hace ninguna llamada a `servicio_ia` (verificado por grep: cero referencias a `servicio_ia`, `8001` o `/search` bajo `app/`). Solo comparten infraestructura (Postgres/Redis).
+## 1. Diagrama de la arquitectura actual 
 
 ```mermaid
 flowchart TB
@@ -16,6 +11,8 @@ flowchart TB
 
     subgraph BE["⚙️ Backend de negocio — app/ (FastAPI, :8000)"]
         EST["routers/estimations.py<br/>POST /api/v1/estimate | /acb | /stream"]
+        SRCH_BE["routers/search.py (S09)<br/>POST /api/v1/search"]
+        AICL["services/ai_client.py (S09)<br/>AIServiceClient — único que<br/>habla HTTP con :8001"]
         LLM["LLM CAG (gpt-4o-mini / claude-haiku)<br/>prompts Jinja2 + Redis cache"]
     end
 
@@ -44,6 +41,9 @@ flowchart TB
     PG[("Postgres + pgvector")]
 
     UI -->|"HTTP requests"| EST
+    UI -.-> SRCH_BE
+    SRCH_BE --> AICL
+    AICL -->|"POST /search {query, k}"| SRCH_EP
     EST --> LLM
     SEED -->|"Budget JSON"| ING_EP
     ING_EP --> SCH --> CHK -->|"chunks (texto)"| EMBD
@@ -55,21 +55,15 @@ flowchart TB
 
     TRANS["📄 Transcripción de reunión"]
     TRANS -.->|"❌ SIN PUERTA DE ENTRADA<br/>422 si &gt; 2000 chars en /search;<br/>/ingest solo acepta Budget JSON"| SRCH_EP
-    SRCH_EP -->|"⛔ chunks + distancias<br/>AQUÍ MUERE EL FLUJO:<br/>nadie los consume"| FIN(("fin"))
-
-    BE -.-|"❌ sin conexión hoy<br/>(0 referencias en el código)"| IA
+    SRCH_EP -->|"⛔ chunks + distancias<br/>AQUÍ MUERE EL FLUJO:<br/>nadie los convierte en estimación"| FIN(("❓ ¿estimación?<br/>NO EXISTE"))
 
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef gap fill:#ffcdd2,stroke:#c62828,color:#b71c1c,stroke-dasharray: 5 5
     classDef infra fill:#e1f5fe,stroke:#0277bd,color:#01579b
-    class H,ING_EP,ENC_EP,SRCH_EP,SCH,CHK,EMBD,REPO,MOD,SEED,EST,LLM,UI done
+    class H,ING_EP,ENC_EP,SRCH_EP,SCH,CHK,EMBD,REPO,MOD,SEED,EST,SRCH_BE,AICL,LLM,UI done
     class TRANS,FIN gap
     class PG infra
 ```
-
-**Leyenda**: verde = implementado y funcionando al cierre de S08. Rojo discontinuo = punto donde el flujo se queda corto si llega una transcripción. El servicio IA sabe ingerir presupuestos **ya estructurados** y devolver chunks similares a una consulta corta; todo lo anterior (transcripción → necesidades) y todo lo posterior (chunks → estimación) no existe.
-
----
 
 ## 2. Trace anotado de `02_ambiguous.txt`
 
@@ -266,7 +260,7 @@ EOF
 
 - **Problema observado**: las 15 distancias del trace caben en la banda [0.6092, 0.6560] — 0.047 de rango. El componente de fidelización `BUD-2024-009::LOY-001`, que responde a una petición literal del cliente, queda en el puesto 9, por detrás de un dashboard de otro sector.
 - **Causa probable**: se compara un único embedding-promedio de ~700 tokens conversacionales multi-tema (5 necesidades + ruido: el café, la sobrina, el primo de Francia) contra chunks mono-tema de ~90 tokens; el coseno solo puede premiar el parecido genérico "tienda online", no cada necesidad concreta. El desajuste de idioma (consulta en español, corpus en inglés) añade otra capa de atenuación.
-- **Propuesta de solución**: descomposición de la consulta — una búsqueda por necesidad extraída ("loyalty points program", "payment gateway", "sales dashboard"...) con agregación de resultados, opcionalmente con reranking posterior.
+- **Propuesta de solución**: descomposición de la consulta — una búsqueda por necesidad extraída ("loyalty points program", "payment gateway", "sales dashboard"...) con agregación de resultados, opcionalmente con reranking posterior. **Validado empíricamente** tras cablear el backend (S09): la consulta corta y mono-tema `"customer loyalty points program for a small gourmet food online shop"` vía `POST :8000/api/v1/search` devuelve `LOY-001` en **1ª posición con distancia 0.4063** — el mismo chunk que la consulta monolítica dejaba 9º a 0.6424.
 
 ### Fallo 4 — Nada filtra por metadatos: un chunk industrial entra en el top-5 de una tienda gourmet
 
@@ -274,11 +268,11 @@ EOF
 - **Causa probable**: `nearest_chunks` en `storage/repository.py` hace ANN puro (`ORDER BY embedding <=> $1 LIMIT k`) sobre los 63 chunks; el índice GIN sobre `metadata` JSONB existe pero ninguna consulta lo usa — el sector, año y tecnología viajan en los metadatos como pasajeros, no como filtros.
 - **Propuesta de solución**: prefiltrado por metadatos en la búsqueda (`WHERE metadata @> '{"client_sector": "ecommerce"}'` y afines), alimentado por el sector que detecte el extractor del fallo 2.
 
-### Fallo 5 — El flujo muere en una lista de chunks: no existe generación ni nadie que la consuma
+### Fallo 5 — El flujo muere en una lista de chunks: no existe generación que los consuma
 
-- **Problema observado**: el trace termina en un JSON de 5 chunks con distancias. No hay ningún endpoint que convierta eso en una estimación (componentes, horas, supuestos), y el backend de negocio — que sí llama a LLMs — no referencia a `servicio_ia` en ninguna línea de código (cero hits de `servicio_ia|8001|/search` bajo `app/`).
-- **Causa probable**: la pieza de generación (RAG: componer contexto con los chunks recuperados y pedir a un LLM el presupuesto fundamentado en casos históricos) no se ha construido, y las dos aplicaciones FastAPI crecieron como islas que solo comparten Postgres/Redis.
-- **Propuesta de solución**: un módulo de generación de estimaciones en el servicio IA que reciba necesidades + chunks y devuelva un borrador de presupuesto con trazabilidad a los históricos usados, más el cableado HTTP backend ⇄ servicio IA.
+- **Problema observado**: el trace termina en un JSON de 5 chunks con distancias. En el momento del trace el backend de negocio ni siquiera referenciaba a `servicio_ia` (cero hits de `servicio_ia|8001|/search` bajo `app/`); ese cableado ya existe (S09: `AIServiceClient` + `POST /api/v1/search`), pero sigue sin haber ningún endpoint que convierta los chunks en una estimación (componentes, horas, supuestos).
+- **Causa probable**: la pieza de generación (RAG: componer contexto con los chunks recuperados y pedir a un LLM el presupuesto fundamentado en casos históricos) no se ha construido — el `/api/v1/estimate` actual es CAG puro y no recibe los chunks; las dos aplicaciones crecieron como islas y solo ahora comparten una flecha HTTP.
+- **Propuesta de solución**: un módulo de generación de estimaciones que reciba necesidades + chunks y devuelva un borrador de presupuesto con trazabilidad a los históricos usados, conectando el retrieval con el pipeline de estimación que el backend ya tiene.
 
 ### Otros (fuera del top 5)
 
@@ -299,6 +293,7 @@ flowchart TB
 
     subgraph BE["⚙️ Backend de negocio — app/ (FastAPI, :8000)"]
         EST["routers/estimations.py"]
+        AICL["services/ai_client.py<br/>AIServiceClient (S09)"]
         LLM["LLM CAG + prompts + Redis"]
     end
 
@@ -331,7 +326,8 @@ flowchart TB
     TRANS["📄 Transcripción"]
 
     UI --> EST
-    EST -->|"🆕 HTTP: transcripción"| NEW_EP
+    EST --> AICL
+    AICL -->|"🆕 HTTP: transcripción"| NEW_EP
     NEW_EP --> TP --> NE
     NE -->|"necesidades estructuradas"| QB
     QB -->|"n consultas cortas"| EMBD
@@ -349,7 +345,7 @@ flowchart TB
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef nueva fill:#fff9c4,stroke:#f9a825,color:#5d4037,stroke-width:3px
     classDef infra fill:#e1f5fe,stroke:#0277bd,color:#01579b
-    class ING_EP,CHK,EMBD,REPO,SRCH_EP,EST,LLM,UI done
+    class ING_EP,CHK,EMBD,REPO,SRCH_EP,EST,AICL,LLM,UI done
     class TP,NE,QB,MF,RR,EG,NEW_EP,TRM,RET,GEN nueva
     class PG infra
     class TRANS done
