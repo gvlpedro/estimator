@@ -16,9 +16,12 @@ services:
     # (redis://localhost:6379) is meant for running uvicorn outside Docker.
     environment:
       REDIS_URL: redis://redis:6379
+      AI_SERVICE_BASE_URL: http://ai_service:8001
 
     depends_on:
       redis:
+        condition: service_healthy
+      ai_service:
         condition: service_healthy
 
     # Bind-mount the app/ directory so code changes are reflected immediately

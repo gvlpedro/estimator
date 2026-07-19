@@ -54,6 +54,11 @@ class Settings(BaseSettings):
 
     ESTIMATOR_API_BASE_URL: str = "http://localhost:8000"
 
+    # --- Session 9 fields (AI service integration) ---
+    # Base URL of servicio_ia. The localhost default is for uvicorn outside
+    # Docker; docker-compose overrides it to http://ai_service:8001.
+    AI_SERVICE_BASE_URL: str = "http://localhost:8001"
+
     # --- Session 5 fields (conversational sessions) ---
     # MAX_TURNS counts user+assistant PAIRS. The system prompt is pinned and
     # never counted. Default 6 keeps the prompt budget bounded while still
