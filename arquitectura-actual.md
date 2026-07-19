@@ -1,75 +1,124 @@
-# Arquitectura actual y diagnóstico — Pre-work Sesión 09
+# Diagnóstico arquitectónico — Sesión 09 (pre-work)
 
+Estado del sistema `estimator` al cierre de Sesión 08 (más el cableado backend ⇄ servicio IA
+añadido en S09), comportamiento observado al pasarle una transcripción cruda, fallos concretos y
+propuesta de evolución hasta cerrar el bucle transcripción → estimación.
 
-## 1. Diagrama de la arquitectura actual 
+> **Cómo está escrito este documento.** Las observaciones van en español; los comandos, payloads y
+> nombres de campo van en inglés. El trace de la sección 2 es reproducible: los comandos están
+> puestos tal cual se ejecutan desde la raíz del repo, y la salida pegada en los bloques de
+> respuesta es la **salida real** del sistema (solo se abrevian campos de eco muy largos, y se
+> indica cuándo).
+
+> **Nota de fidelidad.** El enunciado describe el servicio IA con los nombres genéricos `ingest/`,
+> `embedding_pipeline/` y `storage/`. Este repo los implementa **literalmente** con esos nombres
+> bajo `servicio_ia/app/`, con los endpoints `POST /embeddings/ingest`, `POST /embeddings/encode` y
+> `POST /search`. Además, desde S09 el backend de negocio habla con el servicio IA a través de un
+> único cliente HTTP (`app/services/ai_client.py`, `AIServiceClient`) y expone el proxy
+> `POST /api/v1/search`.
+
+---
+
+## 1. Diagrama de la arquitectura actual
+
+Tres capas. El servicio IA está bajado un nivel. El **borde sombreado** (amarillo) marca dónde
+acaba lo implementado hoy: el flujo muere en *"lista de chunks + distancias"*. **No existe ninguna
+flecha que vaya desde una transcripción hasta una estimación.**
 
 ```mermaid
 flowchart TB
-    subgraph FE["🖥️ Frontend — ui/ (Streamlit, :8501)"]
-        UI[streamlit_app.py]
+    subgraph FE["① Frontend — ui/ (Streamlit, :8501)"]
+        UI["streamlit_app.py<br/>formulario / vistas"]
     end
 
-    subgraph BE["⚙️ Backend de negocio — app/ (FastAPI, :8000)"]
-        EST["routers/estimations.py<br/>POST /api/v1/estimate | /acb | /stream"]
+    subgraph BIZ["② Backend de negocio — app/ (FastAPI, :8000)"]
+        EST["routers/estimations.py<br/>POST /api/v1/estimate | /acb | /stream<br/>(CAG: LLM + prompts Jinja2 + Redis)"]
         SRCH_BE["routers/search.py (S09)<br/>POST /api/v1/search"]
-        AICL["services/ai_client.py (S09)<br/>AIServiceClient — único que<br/>habla HTTP con :8001"]
-        LLM["LLM CAG (gpt-4o-mini / claude-haiku)<br/>prompts Jinja2 + Redis cache"]
+        AIClient["services/ai_client.py (S09)<br/>AIServiceClient<br/>(único que habla HTTP con :8001)"]
     end
 
-    subgraph IA["🧠 Servicio IA — servicio_ia/ (FastAPI, :8001)"]
+    subgraph AI["③ Servicio IA — servicio_ia/ (FastAPI, :8001)"]
         direction TB
-        subgraph EP_HTTP["Endpoints HTTP expuestos hoy"]
-            H["GET /health"]
-            ING_EP["POST /embeddings/ingest"]
-            ENC_EP["POST /embeddings/encode"]
-            SRCH_EP["POST /search<br/>(query ≤ 2000 chars, k ≤ 50)"]
+
+        subgraph API["API (transporte)"]
+            EpIngest["POST /embeddings/ingest"]
+            EpEncode["POST /embeddings/encode"]
+            EpSearch["POST /search<br/>(query ≤ 2000 chars, k ≤ 50)"]
         end
+
         subgraph INGEST["ingest/"]
-            SCH["schemas.py — Budget/Component<br/>(JSON estructurado, validado)"]
-            CHK["chunker.py — JSONStructuralChunker<br/>1 componente = 1 chunk + header contextual"]
+            Schemas["schemas.py — Budget/Component<br/>(JSON estructurado, validado)"]
+            Chunk["chunker.py<br/>JSONStructuralChunker<br/>(1 chunk = 1 componente + header contextual)"]
         end
+
         subgraph EMB["embedding_pipeline/"]
-            EMBD["embedder.py — OpenAIEmbedder<br/>text-embedding-3-small, 1536 dims"]
+            Embed["embedder.py — OpenAIEmbedder<br/>text-embedding-3-small · 1536d"]
         end
+
         subgraph STO["storage/"]
-            REPO["repository.py — dedupe, insert,<br/>nearest_chunks (coseno &lt;=&gt;)"]
-            MOD["models.py — documents / chunks<br/>Vector(1536) + metadata JSONB"]
+            Repo["repository.py<br/>dedupe · insert · nearest_chunks (k-NN)"]
+            Store[("pgvector — documents + chunks<br/>cosine &lt;=&gt; · sin índice vectorial")]
         end
-        SEED["scripts/seed_budgets.py<br/>15 presupuestos, 63 chunks<br/>clave: data/budgets_sample.json::BUD-XXX"]
+
+        Seed["scripts/seed_budgets.py<br/>15 presupuestos · 63 chunks<br/>clave: data/budgets_sample.json::BUD-XXX"]
     end
 
-    PG[("Postgres + pgvector")]
-
-    UI -->|"HTTP requests"| EST
+    %% Capa 1 → capa 2
+    UI --> EST
     UI -.-> SRCH_BE
-    SRCH_BE --> AICL
-    AICL -->|"POST /search {query, k}"| SRCH_EP
-    EST --> LLM
-    SEED -->|"Budget JSON"| ING_EP
-    ING_EP --> SCH --> CHK -->|"chunks (texto)"| EMBD
-    EMBD -->|"vectores 1536d"| REPO
-    SRCH_EP -->|"query (texto)"| EMBD
-    EMBD -.->|"vector consulta"| REPO
-    REPO --> MOD --> PG
-    ENC_EP --> EMBD
 
+    %% Camino S09: backend → servicio IA
+    SRCH_BE --> AIClient
+    AIClient -->|"POST /search {query, k}"| EpSearch
+
+    %% Camino de ingesta (presupuesto a presupuesto)
+    Seed -->|"Budget JSON"| EpIngest
+    EpIngest --> Schemas --> Chunk -->|"chunks (texto)"| Embed
+    Embed -->|"vectores 1536d"| Repo
+
+    %% Camino de búsqueda
+    EpSearch -->|"embed_one(query)"| Embed
+    EpSearch -->|"k-NN cosine"| Repo
+    Repo --> Store
+    Repo -->|"top-k chunks + distance"| EpSearch
+    EpEncode --> Embed
+
+    %% AQUÍ ACABA TODO
+    EpSearch -. "⛔ FIN: devuelve chunks, no una estimación" .-> END(["❓ ¿estimación?<br/>NO EXISTE"])
     TRANS["📄 Transcripción de reunión"]
-    TRANS -.->|"❌ SIN PUERTA DE ENTRADA<br/>422 si &gt; 2000 chars en /search;<br/>/ingest solo acepta Budget JSON"| SRCH_EP
-    SRCH_EP -->|"⛔ chunks + distancias<br/>AQUÍ MUERE EL FLUJO:<br/>nadie los convierte en estimación"| FIN(("❓ ¿estimación?<br/>NO EXISTE"))
+    TRANS -. "❌ sin puerta de entrada:<br/>422 si &gt; 2000 chars en /search;<br/>/ingest solo acepta Budget JSON" .-> EpSearch
 
-    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
-    classDef gap fill:#ffcdd2,stroke:#c62828,color:#b71c1c,stroke-dasharray: 5 5
-    classDef infra fill:#e1f5fe,stroke:#0277bd,color:#01579b
-    class H,ING_EP,ENC_EP,SRCH_EP,SCH,CHK,EMBD,REPO,MOD,SEED,EST,SRCH_BE,AICL,LLM,UI done
-    class TRANS,FIN gap
-    class PG infra
+    classDef done fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
+    classDef edge fill:#fff8e1,stroke:#f9a825,stroke-width:3px,stroke-dasharray:4 3;
+    classDef missing fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray:6 4,color:#b71c1c;
+
+    class UI,EST,SRCH_BE,AIClient,EpIngest,EpEncode,Schemas,Chunk,Embed,Repo,Store,Seed done;
+    class EpSearch edge;
+    class END,TRANS missing;
 ```
 
-## 2. Trace anotado de `02_ambiguous.txt`
+**Lectura del diagrama.** Lo implementado (verde) cubre tres caminos: (a) **ingesta** —
+`/embeddings/ingest` valida un presupuesto estructurado, lo trocea en chunks por componente, los
+embebe y los persiste en pgvector; (b) **búsqueda** — `/search` embebe el texto de consulta con el
+mismo modelo y devuelve los *k* chunks más cercanos por distancia coseno; (c) **cableado S09** — el
+backend de negocio llega a esa búsqueda a través de `AIServiceClient`, único punto de contacto HTTP
+entre las capas ② y ③. El borde amarillo (`/search`) es el último eslabón vivo: **su salida es una
+lista de chunks con distancias, no una estimación**. Las cajas rojas marcan los dos huecos: una
+transcripción no tiene por dónde entrar (422 por longitud; `/ingest` exige `Budget` JSON), y la
+conversión chunks → estimación no existe en ninguna forma. El pipeline CAG de `/api/v1/estimate`
+sigue sin recibir ni un solo chunk del retrieval. Ese es exactamente el hueco que abre la Sesión 09.
 
-Transcripción: reunión exploratoria con Rubén Castaño (Casa Castaño, tienda gourmet física desde 1992). Pide, de forma difusa: tienda online, fidelización por puntos, panel de control con gráficas y stock, pago con tarjeta con foco en abandono de carrito, email de confirmación de pedido, mercado España (quizá Francia). 2.854 caracteres.
+---
 
-Preparación del entorno (reproducible desde la raíz del repo):
+## 2. Trace anotado de una transcripción
+
+Transcripción usada: `examples/transcripts/02_ambiguous.txt` — reunión exploratoria con Rubén
+Castaño (Casa Castaño, tienda gourmet física desde 1992). Pide, de forma difusa: tienda online,
+fidelización por puntos, panel de control con gráficas y stock, pago con tarjeta con foco en
+abandono de carrito, email de confirmación de pedido, mercado España (quizá Francia). 2.854
+caracteres.
+
+Preparación del entorno:
 
 ```bash
 docker compose up -d --build postgres ai_service
@@ -103,7 +152,7 @@ print(json.dumps({
 EOF
 ```
 
-Respuesta (resumen del vector; las 1536 componentes no se pegan por tamaño):
+Salida real (resumen del vector; las 1536 componentes no se pegan por tamaño):
 
 ```json
 {
@@ -116,11 +165,16 @@ Respuesta (resumen del vector; las 1536 componentes no se pegan por tamaño):
 }
 ```
 
-> **Comentario**: el vector es un único punto de 1536 dimensiones, ya normalizado (‖v‖ ≈ 1.0, listo para similitud coseno), que representa el *promedio semántico* de toda la reunión: mezcla en una sola dirección la tienda online, los puntos de fidelidad, el panel, los pagos, los emails… y también el ruido conversacional (el café, el cuaderno, la sobrina, el primo de Francia). Ninguna necesidad concreta domina la representación.
+> **Comentario**: el vector es un único punto de 1536 dimensiones, ya normalizado (‖v‖ ≈ 1.0,
+> listo para similitud coseno), que representa el *promedio semántico* de toda la reunión: mezcla
+> en una sola dirección la tienda online, los puntos de fidelidad, el panel, los pagos, los
+> emails… y también el ruido conversacional (el café, el cuaderno, la sobrina, el primo de
+> Francia). Ninguna necesidad concreta domina la representación.
 
 ### Paso 2 — Búsqueda semántica (`POST /search`, k=5)
 
-`/search` acepta texto (embebe la consulta en servidor con el mismo modelo), no un vector. Primer intento con la transcripción completa:
+`/search` acepta texto (embebe la consulta en servidor con el mismo modelo), no un vector. Primer
+intento con la transcripción completa:
 
 ```bash
 python3 - <<'EOF'
@@ -133,7 +187,7 @@ curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8001/search \
   -H "Content-Type: application/json" -d @/tmp/search_full.json
 ```
 
-Respuesta cruda (el campo `input` echo de los 2.854 chars se elide por brevedad):
+Salida real (el campo `input`, eco de los 2.854 chars, se elide por brevedad):
 
 ```json
 {"detail":[{"type":"string_too_long","loc":["body","query"],
@@ -143,7 +197,9 @@ Respuesta cruda (el campo `input` echo de los 2.854 chars se elide por brevedad)
 HTTP 422
 ```
 
-> **Comentario**: el sistema **rechaza la transcripción tal cual**. `SearchRequest.query` está limitado a 2000 caracteres (`servicio_ia/app/embedding_pipeline/schemas.py`) porque fue diseñado para consultas cortas, no para actas de reunión. Ya tenemos el primer punto donde el flujo se rompe.
+> **Comentario**: el sistema **rechaza la transcripción tal cual**. `SearchRequest.query` está
+> limitado a 2000 caracteres (`servicio_ia/app/embedding_pipeline/schemas.py`) porque fue diseñado
+> para consultas cortas, no para actas de reunión. Primer punto donde el flujo se rompe.
 
 Segundo intento, truncando a los primeros 2000 caracteres:
 
@@ -152,7 +208,7 @@ curl -s -X POST http://localhost:8001/search \
   -H "Content-Type: application/json" -d @/tmp/search_trunc.json
 ```
 
-Respuesta cruda (campo `query` abreviado):
+Salida real (campo `query` abreviado):
 
 ```json
 {
@@ -194,7 +250,9 @@ Respuesta cruda (campo `query` abreviado):
 }
 ```
 
-> **Comentario**: hay señal — 4 de 5 chunks son de ecommerce y el checkout con recuperación de carrito abandonado encaja con lo que pide Rubén — pero las cinco distancias caben en una banda de **0.0235** (0.6092–0.6327): el ranking es casi plano y poco discriminante.
+> **Comentario**: hay señal — 4 de 5 chunks son de ecommerce y el checkout con recuperación de
+> carrito abandonado encaja con lo que pide Rubén — pero las cinco distancias caben en una banda
+> de **0.0235** (0.6092–0.6327): el ranking es casi plano y poco discriminante.
 
 ### Paso 3 — Análisis chunk a chunk
 
@@ -206,7 +264,9 @@ Respuesta cruda (campo `query` abreviado):
 | 4 | `BUD-2023-007::ANL-001` — Sales analytics dashboard (0.6297) | Plataforma B2B de recambios de automoción con EDI | **industrial** | **A medias, y preocupante**: el *concepto* (panel de ventas con gráficas y stock muerto) encaja con "el panel del café de la mañana", pero es de otro sector, B2B, Java/Metabase. Que un chunk industrial entre en el top-5 demuestra que nada filtra por sector. |
 | 5 | `BUD-2023-005::CAT-001` — Product catalog service (0.6327) | El mismo marketplace, tercera vez | ecommerce | **No a esta escala**: catálogo multi-vendor con import CSV masivo y pipeline de imágenes. Rubén necesita un catálogo de conservas, vinos y aceite. 3 de 5 chunks vienen del mismo presupuesto (BUD-2023-005), cero diversidad. |
 
-Siendo honesto: el retrieval **no es un desastre** — la señal ecommerce domina y el chunk #1 es genuinamente útil — pero es **poco discriminante y nada fiel a lo pedido**: la fidelización, que Rubén pide explícitamente ("algo de puntos, o un club"), ni aparece. Verificación con `k=15`:
+Siendo honesto: el retrieval **no es un desastre** — la señal ecommerce domina y el chunk #1 es
+genuinamente útil — pero es **poco discriminante y nada fiel a lo pedido**: la fidelización, que
+Rubén pide explícitamente ("algo de puntos, o un club"), ni aparece. Verificación con `k=15`:
 
 ```bash
 python3 - <<'EOF'
@@ -238,7 +298,10 @@ EOF
 0.6560  BUD-2022-003::SLT-001  sector=ecommerce
 ```
 
-> **Comentario**: 15 resultados en una banda de **0.047**. El componente de fidelización (`LOY-001`) queda 9º, por detrás de un dashboard industrial y de la gestión de pedidos EDI de recambios de coche. La consulta-promedio no puede priorizar lo que el cliente pidió de forma explícita.
+> **Comentario**: 15 resultados en una banda de **0.047**. El componente de fidelización
+> (`LOY-001`) queda 9º, por detrás de un dashboard industrial y de la gestión de pedidos EDI de
+> recambios de coche. La consulta-promedio no puede priorizar lo que el cliente pidió de forma
+> explícita.
 
 ---
 
@@ -285,19 +348,22 @@ EOF
 
 ## 4. Propuesta de evolución arquitectónica
 
+Mismo esquema de tres capas; en amarillo con borde grueso, los módulos **nuevos** (🆕) respecto al
+diagrama de la sección 1.
+
 ```mermaid
 flowchart TB
-    subgraph FE["🖥️ Frontend — ui/ (Streamlit, :8501)"]
+    subgraph FE["① Frontend — ui/ (Streamlit, :8501)"]
         UI[streamlit_app.py]
     end
 
-    subgraph BE["⚙️ Backend de negocio — app/ (FastAPI, :8000)"]
+    subgraph BIZ["② Backend de negocio — app/ (FastAPI, :8000)"]
         EST["routers/estimations.py"]
-        AICL["services/ai_client.py<br/>AIServiceClient (S09)"]
+        AIClient["services/ai_client.py<br/>AIServiceClient (S09)"]
         LLM["LLM CAG + prompts + Redis"]
     end
 
-    subgraph IA["🧠 Servicio IA — servicio_ia/ (FastAPI, :8001)"]
+    subgraph AI["③ Servicio IA — servicio_ia/ (FastAPI, :8001)"]
         direction TB
         subgraph TRM["🆕 transcripts/"]
             TP["TranscriptParser<br/>(limpieza, hablantes, timestamps)"]
@@ -326,8 +392,8 @@ flowchart TB
     TRANS["📄 Transcripción"]
 
     UI --> EST
-    EST --> AICL
-    AICL -->|"🆕 HTTP: transcripción"| NEW_EP
+    EST --> AIClient
+    AIClient -->|"🆕 HTTP: transcripción"| NEW_EP
     NEW_EP --> TP --> NE
     NE -->|"necesidades estructuradas"| QB
     QB -->|"n consultas cortas"| EMBD
@@ -342,15 +408,24 @@ flowchart TB
     REPO --> PG
     TRANS --> NEW_EP
 
-    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef done fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
     classDef nueva fill:#fff9c4,stroke:#f9a825,color:#5d4037,stroke-width:3px
     classDef infra fill:#e1f5fe,stroke:#0277bd,color:#01579b
-    class ING_EP,CHK,EMBD,REPO,SRCH_EP,EST,AICL,LLM,UI done
+    class ING_EP,CHK,EMBD,REPO,SRCH_EP,EST,AIClient,LLM,UI,TRANS done
     class TP,NE,QB,MF,RR,EG,NEW_EP,TRM,RET,GEN nueva
     class PG infra
-    class TRANS done
 ```
 
-**Leyenda**: amarillo con borde grueso = módulos nuevos (🆕) respecto al diagrama de la sección 1; verde = ya existente.
-
-**Responsabilidades y flujo**: `transcripts/` convierte la conversación cruda en datos: el parser limpia y estructura el texto, y el `NeedExtractor` produce la lista de necesidades más el perfil del cliente (sector, escala, mercado) — resuelve los fallos 1 y 2. `retrieval/` recibe esa estructura y ejecuta una búsqueda por necesidad (fallo 3), prefiltrada por metadatos (fallo 4) y con reranking y cap de diversidad por documento; entrega chunks relevantes y variados. `estimation/` compone el contexto RAG (necesidades + chunks históricos) y genera el borrador de presupuesto con horas, supuestos y referencias a los históricos usados (fallo 5), que el backend de negocio consume vía el nuevo endpoint. El dato que fluye es siempre más estructurado aguas abajo: texto → necesidades tipadas → consultas → chunks rankeados → estimación JSON. **La pieza más crítica es el `NeedExtractor`**: sin él la transcripción ni siquiera entra al sistema (422), y con él cada etapa posterior recibe consultas cortas, mono-tema y con sector conocido — es el único módulo que mejora a la vez la entrada, el retrieval y la generación, y por eso lo construiría primero.
+**Responsabilidades y flujo**: `transcripts/` convierte la conversación cruda en datos: el parser
+limpia y estructura el texto, y el `NeedExtractor` produce la lista de necesidades más el perfil
+del cliente (sector, escala, mercado) — resuelve los fallos 1 y 2. `retrieval/` recibe esa
+estructura y ejecuta una búsqueda por necesidad (fallo 3), prefiltrada por metadatos (fallo 4) y
+con reranking y cap de diversidad por documento; entrega chunks relevantes y variados.
+`estimation/` compone el contexto RAG (necesidades + chunks históricos) y genera el borrador de
+presupuesto con horas, supuestos y referencias a los históricos usados (fallo 5), que el backend de
+negocio consume vía el nuevo endpoint a través del `AIServiceClient` ya existente. El dato que
+fluye es siempre más estructurado aguas abajo: texto → necesidades tipadas → consultas → chunks
+rankeados → estimación JSON. **La pieza más crítica es el `NeedExtractor`**: sin él la
+transcripción ni siquiera entra al sistema (422), y con él cada etapa posterior recibe consultas
+cortas, mono-tema y con sector conocido — es el único módulo que mejora a la vez la entrada, el
+retrieval y la generación, y por eso lo construiría primero.
