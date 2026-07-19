@@ -1,29 +1,14 @@
 # Diagnóstico arquitectónico — Sesión 09 (pre-work)
 
-Estado del sistema `estimator` al cierre de Sesión 08 (más el cableado backend ⇄ servicio IA
-añadido en S09), comportamiento observado al pasarle una transcripción cruda, fallos concretos y
-propuesta de evolución hasta cerrar el bucle transcripción → estimación.
-
-> **Cómo está escrito este documento.** Las observaciones van en español; los comandos, payloads y
-> nombres de campo van en inglés. El trace de la sección 2 es reproducible: los comandos están
-> puestos tal cual se ejecutan desde la raíz del repo, y la salida pegada en los bloques de
-> respuesta es la **salida real** del sistema (solo se abrevian campos de eco muy largos, y se
-> indica cuándo).
-
-> **Nota de fidelidad.** El enunciado describe el servicio IA con los nombres genéricos `ingest/`,
-> `embedding_pipeline/` y `storage/`. Este repo los implementa **literalmente** con esos nombres
-> bajo `servicio_ia/app/`, con los endpoints `POST /embeddings/ingest`, `POST /embeddings/encode` y
-> `POST /search`. Además, desde S09 el backend de negocio habla con el servicio IA a través de un
-> único cliente HTTP (`app/services/ai_client.py`, `AIServiceClient`) y expone el proxy
-> `POST /api/v1/search`.
-
----
 
 ## 1. Diagrama de la arquitectura actual
 
-Tres capas. El servicio IA está bajado un nivel. El **borde sombreado** (amarillo) marca dónde
-acaba lo implementado hoy: el flujo muere en *"lista de chunks + distancias"*. **No existe ninguna
-flecha que vaya desde una transcripción hasta una estimación.**
+Tres capas. El servicio IA está bajado un nivel. Desde S09 el bucle transcripción → estimación
+está **cerrado de extremo a extremo**: la transcripción entra por el formulario del frontend
+(textarea "Transcript" + adjuntos), el backend recupera chunks históricos del servicio IA y los
+inyecta en el prompt de estimación. El **borde sombreado** (amarillo) marca el eslabón débil que
+queda: la consulta de retrieval es la transcripción truncada a 2000 chars, monolítica y sin
+filtrar (fallos 1–4).
 
 ```mermaid
 flowchart TB
@@ -32,9 +17,11 @@ flowchart TB
     end
 
     subgraph BIZ["② Backend de negocio — app/ (FastAPI, :8000)"]
-        EST["routers/estimations.py<br/>POST /api/v1/estimate | /acb | /stream<br/>(CAG: LLM + prompts Jinja2 + Redis)"]
+        SESS["routers/sessions.py<br/>POST /api/v1/sessions/{id}/estimate<br/>(multipart: transcript + attachments)"]
+        EST["routers/estimations.py<br/>POST /api/v1/estimate | /acb | /stream"]
         SRCH_BE["routers/search.py (S09)<br/>POST /api/v1/search"]
         AIClient["services/ai_client.py (S09)<br/>AIServiceClient<br/>(único que habla HTTP con :8001)"]
+        CAG["EstimationService (CAG → RAG-lite)<br/>prompts Jinja2 + bloque<br/>retrieved_context (S09) · LLM · Redis"]
     end
 
     subgraph AI["③ Servicio IA — servicio_ia/ (FastAPI, :8001)"]
@@ -63,13 +50,20 @@ flowchart TB
         Seed["scripts/seed_budgets.py<br/>15 presupuestos · 63 chunks<br/>clave: data/budgets_sample.json::BUD-XXX"]
     end
 
-    %% Capa 1 → capa 2
-    UI --> EST
+    %% La transcripción entra por el formulario del frontend
+    TRANS["📄 Transcripción de reunión"]
+    TRANS -->|"pegada en el formulario<br/>(20–80.000 chars)"| UI
+    UI -->|"multipart: transcript + files"| SESS
     UI -.-> SRCH_BE
 
-    %% Camino S09: backend → servicio IA
+    %% Camino S09: backend → servicio IA → prompt de estimación
+    SESS -->|"query = description[:2000] · k=5<br/>(solo en cache miss; best-effort,<br/>degrada sin romper)"| AIClient
     SRCH_BE --> AIClient
     AIClient -->|"POST /search {query, k}"| EpSearch
+    AIClient -->|"top-5 chunks + distances"| CAG
+    SESS --> CAG
+    EST --> CAG
+    CAG -->|"estimación (fases, horas, coste)"| UI
 
     %% Camino de ingesta (presupuesto a presupuesto)
     Seed -->|"Budget JSON"| EpIngest
@@ -83,30 +77,25 @@ flowchart TB
     Repo -->|"top-k chunks + distance"| EpSearch
     EpEncode --> Embed
 
-    %% AQUÍ ACABA TODO
-    EpSearch -. "⛔ FIN: devuelve chunks, no una estimación" .-> END(["❓ ¿estimación?<br/>NO EXISTE"])
-    TRANS["📄 Transcripción de reunión"]
-    TRANS -. "❌ sin puerta de entrada:<br/>422 si &gt; 2000 chars en /search;<br/>/ingest solo acepta Budget JSON" .-> EpSearch
-
     classDef done fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
     classDef edge fill:#fff8e1,stroke:#f9a825,stroke-width:3px,stroke-dasharray:4 3;
-    classDef missing fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray:6 4,color:#b71c1c;
 
-    class UI,EST,SRCH_BE,AIClient,EpIngest,EpEncode,Schemas,Chunk,Embed,Repo,Store,Seed done;
+    class TRANS,UI,SESS,EST,SRCH_BE,AIClient,CAG,EpIngest,EpEncode,Schemas,Chunk,Embed,Repo,Store,Seed done;
     class EpSearch edge;
-    class END,TRANS missing;
 ```
 
-**Lectura del diagrama.** Lo implementado (verde) cubre tres caminos: (a) **ingesta** —
+**Lectura del diagrama.** Lo implementado (verde) cubre el bucle completo: (a) **ingesta** —
 `/embeddings/ingest` valida un presupuesto estructurado, lo trocea en chunks por componente, los
 embebe y los persiste en pgvector; (b) **búsqueda** — `/search` embebe el texto de consulta con el
-mismo modelo y devuelve los *k* chunks más cercanos por distancia coseno; (c) **cableado S09** — el
-backend de negocio llega a esa búsqueda a través de `AIServiceClient`, único punto de contacto HTTP
-entre las capas ② y ③. El borde amarillo (`/search`) es el último eslabón vivo: **su salida es una
-lista de chunks con distancias, no una estimación**. Las cajas rojas marcan los dos huecos: una
-transcripción no tiene por dónde entrar (422 por longitud; `/ingest` exige `Budget` JSON), y la
-conversión chunks → estimación no existe en ninguna forma. El pipeline CAG de `/api/v1/estimate`
-sigue sin recibir ni un solo chunk del retrieval. Ese es exactamente el hueco que abre la Sesión 09.
+mismo modelo y devuelve los *k* chunks más cercanos por distancia coseno; (c) la
+transcripción entra por el formulario de la UI, el router de sesiones la reenvía como consulta al
+servicio IA a través de `AIServiceClient` (único punto de contacto HTTP entre ② y ③, best-effort:
+si el servicio IA está caído, la estimación sigue sin contexto), y los chunks recuperados se
+inyectan en el bloque `retrieved_context` del prompt de estimación. El borde amarillo (`/search`) marca el
+eslabón débil que queda: la consulta que recibe es `description[:2000]` — la transcripción
+truncada, monolítica, sin extracción de necesidades ni filtrado por sector — así que **el bucle
+existe, pero hereda todos los fallos de calidad de la sección 3**. Ese es el hueco que abre la
+Sesión 09: no ya conectar, sino conectar *bien*.
 
 ---
 
@@ -303,6 +292,35 @@ EOF
 > recambios de coche. La consulta-promedio no puede priorizar lo que el cliente pidió de forma
 > explícita.
 
+### Paso 4 — El bucle cerrado (S09): la transcripción entra por el formulario
+
+Mismo camino que usa la UI de Streamlit (multipart a la ruta de sesiones), con la transcripción
+completa como `transcript`:
+
+```bash
+SID=$(curl -s -X POST http://localhost:8000/api/v1/sessions \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['session_id'])")
+curl -s -X POST "http://localhost:8000/api/v1/sessions/$SID/estimate" \
+  -F "transcript=<examples/transcripts/02_ambiguous.txt" \
+  -F "project_type=web_saas"
+```
+
+Salida real: `HTTP 200` con una estimación completa cuya `summary` empieza por *"The project
+involves creating a web-based e-commerce platform for Casa Castaño, focusing on product sales,
+customer loyalty features, and backend management…"*. Y en los logs del backend, la prueba de que
+el retrieval entró en el prompt:
+
+```text
+retrieval_context_attached  chunks=5  session_id=b57aaded-…  top_distance=0.6092
+prompt_rendered  prompt_version=v1  system_chars=7516  user_chars=3021
+```
+
+> **Comentario**: el `top_distance=0.6092` es exactamente el chunk #1 del paso 2 (`CHK-001`): el
+> backend está reenviando `description[:2000]` como consulta, así que el contexto que llega al LLM
+> es el mismo top-5 truncado y sin filtrar del trace. El bucle formulario → backend → servicio IA
+> → prompt → estimación **existe y funciona**, pero hereda todos los defectos de calidad de la
+> consulta monolítica.
+
 ---
 
 ## 3. Diagnóstico: cinco fallos identificados
@@ -310,7 +328,7 @@ EOF
 ### Fallo 1 — La transcripción completa no cabe: `/search` devuelve 422
 
 - **Problema observado**: enviar los 2.854 caracteres de `02_ambiguous.txt` a `POST /search` produce `HTTP 422 string_too_long, max_length: 2000` (paso 2 del trace). El sistema literalmente no admite el artefacto de entrada del caso de uso.
-- **Causa probable**: `SearchRequest.query` se diseñó en S08 para consultas cortas tipo "pasarela de pago para ecommerce"; no existe ninguna ruta pensada para transcripciones (el otro endpoint de entrada, `/embeddings/ingest`, solo acepta `Budget` JSON estructurado y validado).
+- **Causa probable**: `SearchRequest.query` se diseñó para consultas cortas tipo "pasarela de pago para ecommerce"; no existe ninguna ruta pensada para transcripciones (el otro endpoint de entrada, `/embeddings/ingest`, solo acepta `Budget` JSON estructurado y validado).
 - **Propuesta de solución**: una etapa de procesamiento de transcripciones previa al retrieval (parseo + extracción de necesidades), en lugar de subir el `max_length` — que solo trasladaría el problema al fallo 3.
 
 ### Fallo 2 — Truncar amputa requisitos: el email transaccional desaparece de la consulta
@@ -331,11 +349,11 @@ EOF
 - **Causa probable**: `nearest_chunks` en `storage/repository.py` hace ANN puro (`ORDER BY embedding <=> $1 LIMIT k`) sobre los 63 chunks; el índice GIN sobre `metadata` JSONB existe pero ninguna consulta lo usa — el sector, año y tecnología viajan en los metadatos como pasajeros, no como filtros.
 - **Propuesta de solución**: prefiltrado por metadatos en la búsqueda (`WHERE metadata @> '{"client_sector": "ecommerce"}'` y afines), alimentado por el sector que detecte el extractor del fallo 2.
 
-### Fallo 5 — El flujo muere en una lista de chunks: no existe generación que los consuma
+### Fallo 5 — El bucle está cerrado, pero con el eslabón más débil justo en la entrada del retrieval
 
-- **Problema observado**: el trace termina en un JSON de 5 chunks con distancias. En el momento del trace el backend de negocio ni siquiera referenciaba a `servicio_ia` (cero hits de `servicio_ia|8001|/search` bajo `app/`); ese cableado ya existe (S09: `AIServiceClient` + `POST /api/v1/search`), pero sigue sin haber ningún endpoint que convierta los chunks en una estimación (componentes, horas, supuestos).
-- **Causa probable**: la pieza de generación (RAG: componer contexto con los chunks recuperados y pedir a un LLM el presupuesto fundamentado en casos históricos) no se ha construido — el `/api/v1/estimate` actual es CAG puro y no recibe los chunks; las dos aplicaciones crecieron como islas y solo ahora comparten una flecha HTTP.
-- **Propuesta de solución**: un módulo de generación de estimaciones que reciba necesidades + chunks y devuelva un borrador de presupuesto con trazabilidad a los históricos usados, conectando el retrieval con el pipeline de estimación que el backend ya tiene.
+- **Problema observado**: desde S09 la estimación sí consume chunks (paso 4: `retrieval_context_attached chunks=5 top_distance=0.6092`), pero la consulta de retrieval es literalmente `description[:2000]` — el mismo truncado del fallo 2 y la misma consulta monolítica del fallo 3 — y la respuesta al usuario no expone qué históricos se usaron (cero trazabilidad: `EstimationResponse` no tiene campo de referencias).
+- **Causa probable**: el cableado reutiliza `/search` tal cual, sin extracción de necesidades, sin descomposición de consultas y sin filtrado por sector; la calidad del contexto que llega al LLM hereda los fallos 1–4, y la provenance se queda en los logs en vez de llegar a la respuesta.
+- **Propuesta de solución**: sustituir la consulta cruda por el pipeline de la sección 4 (`NeedExtractor` → `retrieval/`) y añadir `historical_references` a la respuesta de estimación para que el usuario vea sobre qué casos reales se fundamenta el número.
 
 ### Otros (fuera del top 5)
 
@@ -359,7 +377,7 @@ flowchart TB
 
     subgraph BIZ["② Backend de negocio — app/ (FastAPI, :8000)"]
         EST["routers/estimations.py"]
-        AIClient["services/ai_client.py<br/>AIServiceClient (S09)"]
+        AIClient["services/ai_client.py<br/>AIServiceClient"]
         LLM["LLM CAG + prompts + Redis"]
     end
 
@@ -378,7 +396,7 @@ flowchart TB
             EG["EstimationGenerator (LLM)<br/>necesidades + chunks →<br/>borrador de presupuesto con<br/>trazabilidad a históricos"]
         end
         NEW_EP["🆕 POST /transcripts/estimate"]
-        subgraph EXIST["Existente (S08)"]
+        subgraph EXIST["Existente"]
             ING_EP["POST /embeddings/ingest"]
             CHK["ingest/ chunker"]
             EMBD["embedding_pipeline/ embedder"]

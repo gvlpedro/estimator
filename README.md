@@ -405,3 +405,10 @@ La idea es hacer un script cada cierto tiempo ajustando el ef_search midiendo el
 ![halvec](doc/halfvec.png)
 ![adoptar_halfvec](doc/adoptar_halfvec.png)
 ![manteniendo_bdd_vectorial](doc/manteniendo_bdd_vectorial.png)
+
+# Retrieval 
+
+* top K (número de chunks)
+* distancia (cuanto de cerca lo queremos): con algo crítico debe ser mayor y si es información general puede ser menor.
+* filtros
+
