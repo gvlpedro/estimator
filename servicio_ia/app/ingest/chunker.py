@@ -8,7 +8,8 @@ surface, not something to paper over with a splitter.
 
 import tiktoken
 
-from app.embedding_pipeline.schemas import Budget, Chunk
+from app.embedding_pipeline.schemas import Chunk
+from app.ingest.schemas import Budget
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 

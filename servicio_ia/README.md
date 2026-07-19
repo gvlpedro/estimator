@@ -13,6 +13,39 @@ uv sync
 uv run --env-file .env uvicorn app.main:app --port 8001 --app-dir servicio_ia
 ```
 
+## Módulos
+
+```
+servicio_ia/app/
+├── ingest/              # documentos dentro: contratos Budget, chunking estructural
+│   ├── schemas.py       #   y POST /embeddings/ingest (chunk → embed → persist)
+│   ├── chunker.py
+│   └── router.py
+├── embedding_pipeline/  # texto → vectores: embedder OpenAI, contratos de chunks,
+│   ├── schemas.py       #   POST /embeddings/encode y POST /search
+│   ├── embedder.py
+│   └── router.py
+├── storage/             # persistencia: engine/session async, modelos ORM y
+│   ├── db.py            #   repositorio (todo el SQL vive aquí, incluido el
+│   ├── models.py        #   ranking vectorial por distancia coseno)
+│   └── repository.py
+├── dependencies.py      # providers compartidos (embedder, chunker)
+└── main.py
+```
+
+Los routers no construyen SQL: la detección de duplicados, la persistencia transaccional y el ranking vectorial están en `app/storage/repository.py`.
+
+## Base de datos: migración y seed
+
+Con el postgres del compose levantado (`docker compose up -d postgres`):
+
+```bash
+make db_upgrade   # alembic upgrade head — crea extensión vector + tablas documents/chunks
+make seed_ia      # ingesta los 15 presupuestos históricos de data/budgets_sample.json
+```
+
+El seed es **idempotente**: usa `source_path` como clave (`data/budgets_sample.json::<budget_id>`), así que un 409 cuenta como "ya presente" y re-ejecutarlo tras un fallo parcial solo ingesta lo que falte. El embedding ocurre en el servidor, de modo que el script (`scripts/seed_budgets.py`) solo necesita stdlib — pero sí el servicio levantado en `:8001`.
+
 ## Endpoints
 
 Swagger UI interactivo: <http://localhost:8001/docs> — desde ahí se puede invocar todo con "Try it out".
@@ -67,6 +100,27 @@ Respuesta `409 Conflict` si ya existe un documento con ese `source_path` (la ing
 
 La transacción única garantiza que un fallo del embedder no deja filas huérfanas en `documents`: el documento se inserta con `flush` (visible solo dentro de la transacción) y solo el `commit` final, con todos los chunks ya añadidos, lo hace permanente.
 
+### POST /embeddings/encode
+
+Embebe textos crudos con `text-embedding-3-small` y devuelve los vectores, uno por texto y en el mismo orden. A diferencia de `/embeddings/ingest`, **no persiste nada**: expone el encoder en sí, para que otros servicios (o los ejercicios del directo) obtengan vectores sin pasar por el pipeline documental. Máximo 100 textos por petición (una petición = una llamada a la API de embeddings).
+
+```bash
+curl -X POST http://localhost:8001/embeddings/encode \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["REST API with JWT authentication", "payment gateway integration"]}'
+```
+
+Respuesta `200 OK` (vectores truncados):
+
+```json
+{
+  "model": "text-embedding-3-small",
+  "embedding_dimension": 1536,
+  "embeddings": [[-0.0444, -0.0262, "…"], [0.0113, -0.0186, "…"]],
+  "encode_time_ms": 512
+}
+```
+
 ### POST /search
 
 Embebe la query con el mismo modelo usado en ingesta (`text-embedding-3-small`) y devuelve los `k` chunks más cercanos por distancia coseno (`<=>` de pgvector, menor = más similar).
@@ -103,7 +157,7 @@ Respuesta `200 OK` (resumida; `k` es opcional, por defecto 5):
 
 ## Vector schema
 
-El schema vive en `alembic/versions/0001_initial_schema.py` (tablas `documents` y `chunks`), con modelos ORM espejo en `app/models.py`. Las decisiones de diseño (dos tablas, metadata JSONB, distancia coseno, ausencia deliberada de índice vectorial) están justificadas en la sección **"Vector schema decisions"** del [README raíz](../README.md).
+El schema vive en `alembic/versions/0001_initial_schema.py` (tablas `documents` y `chunks`), con modelos ORM espejo en `app/storage/models.py`. Las decisiones de diseño (dos tablas, metadata JSONB, distancia coseno, ausencia deliberada de índice vectorial) están justificadas en la sección **"Vector schema decisions"** del [README raíz](../README.md).
 
 Dos decisiones de implementación adicionales:
 
@@ -133,7 +187,7 @@ La URL base se puede cambiar con `SERVICIO_IA_BASE_URL`: por defecto `http://loc
 
 ## Logs
 
-Eventos estructurados (structlog, convención del proyecto): `embedding_ingest_received`, `embedding_ingest_duplicate` (409), `embedding_batch_processed` (chunks, tokens reales del `usage`, latencia), `embedding_rate_limited`, `embedding_ingest_completed`, `embedding_ingest_failed`, `search_received`, `search_completed`, `search_failed`.
+Eventos estructurados (structlog, convención del proyecto): `embedding_ingest_received`, `embedding_ingest_duplicate` (409), `embedding_batch_processed` (chunks, tokens reales del `usage`, latencia), `embedding_rate_limited`, `embedding_ingest_completed`, `embedding_ingest_failed`, `encode_received`, `encode_completed`, `encode_failed`, `search_received`, `search_completed`, `search_failed`.
 
 ```bash
 docker compose logs -f ai_service

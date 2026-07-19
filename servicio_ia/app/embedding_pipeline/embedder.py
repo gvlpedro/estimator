@@ -43,8 +43,17 @@ class OpenAIEmbedder:
         self._batch_size = batch_size
 
     def embed_one(self, text: str) -> list[float]:
-        response = self._create_with_retry([text])
-        return response.data[0].embedding
+        return self.embed_texts([text])[0]
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Embed raw texts (no chunk metadata), one vector per input in order."""
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self._batch_size):
+            response = self._create_with_retry(texts[start : start + self._batch_size])
+            # The API preserves input order, but each item carries its index —
+            # sorting makes the pairing explicit instead of assumed.
+            vectors.extend(item.embedding for item in sorted(response.data, key=lambda i: i.index))
+        return vectors
 
     def embed_many(self, chunks: list[Chunk]) -> list[EmbeddedChunk]:
         embedded: list[EmbeddedChunk] = []

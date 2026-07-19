@@ -7,7 +7,6 @@ import pgvector.sqlalchemy
 
 
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
@@ -17,7 +16,7 @@ from alembic import context
 # must come FIRST on sys.path or the import below resolves to the wrong one.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "servicio_ia"))
 
-from app.models import Base  # noqa: E402
+from app.storage.models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

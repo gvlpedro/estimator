@@ -1,71 +1,17 @@
-"""Pydantic models for the embedding pipeline.
+"""Pydantic contracts of the embedding pipeline.
 
-Defines the data contracts shared across the pipeline: normalized historical
-budgets (as found in ``data/budgets_sample.json``), chunks ready for
-embedding, and the request/response payloads of the ingest endpoint.
+Chunks ready for embedding, embedded chunks, and the request/response
+payloads of the encode and search endpoints.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints
 
 # Closed vocabularies produced by the normalization pipeline. A value outside
 # these sets means the input was NOT normalized — reject it, don't coerce it.
 Sector = Literal["finance", "ecommerce", "healthcare", "industrial"]
 Complexity = Literal["low", "medium", "high"]
-
-
-class ClientMetadata(BaseModel):
-    """Client identification attached to a historical budget."""
-
-    name: str = Field(min_length=1, max_length=120)
-    sector: Sector
-    country: str = Field(pattern=r"^[A-Z]{2}$", description="Two-letter country code.")
-
-
-class BudgetComponent(BaseModel):
-    """One work component inside a historical budget."""
-
-    component_id: str = Field(min_length=1, max_length=32)
-    name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=10, max_length=1000)
-    tech_stack: list[str] = Field(min_length=1)
-    estimated_hours: int = Field(ge=1, le=10_000)
-    complexity: Complexity
-    dependencies: list[str] = Field(default_factory=list)
-
-
-class Budget(BaseModel):
-    """A complete normalized historical budget."""
-
-    budget_id: str = Field(min_length=1, max_length=32)
-    client_metadata: ClientMetadata
-    project_summary: str = Field(min_length=10, max_length=600)
-    main_technology: str = Field(min_length=1, max_length=64)
-    year: int = Field(ge=2000, le=2100)
-    total_estimated_hours: int = Field(ge=1, le=100_000)
-    components: list[BudgetComponent] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def totals_and_dependencies_are_consistent(self) -> "Budget":
-        # Normalized data guarantees both invariants; a violation here means
-        # the source file is corrupt and must be fixed upstream, not silently
-        # reconciled — unlike LLM output, historical data is ground truth.
-        component_sum = sum(component.estimated_hours for component in self.components)
-        if component_sum != self.total_estimated_hours:
-            raise ValueError(
-                f"total_estimated_hours ({self.total_estimated_hours}) does not match "
-                f"the sum of component hours ({component_sum}) in {self.budget_id}"
-            )
-        known_ids = {component.component_id for component in self.components}
-        for component in self.components:
-            unknown = set(component.dependencies) - known_ids
-            if unknown:
-                raise ValueError(
-                    f"component {component.component_id} in {self.budget_id} depends on "
-                    f"unknown component ids: {sorted(unknown)}"
-                )
-        return self
 
 
 class Chunk(BaseModel):
@@ -87,32 +33,28 @@ class EmbeddedChunk(Chunk):
     embedding: list[float] = Field(min_length=1)
 
 
-class IngestRequest(BaseModel):
-    """Payload accepted by the ingest endpoint: one document to persist.
+class EncodeRequest(BaseModel):
+    """Payload accepted by the encode endpoint: raw texts to embed.
 
-    ``content`` is the full normalized budget JSON; validating it as a
-    ``Budget`` keeps the 422-on-malformed-input behavior of the old contract.
+    Capped at the embedder's batch size: one request maps to one embeddings
+    API call, so the endpoint's latency stays predictable.
     """
 
-    source_path: str = Field(min_length=1, max_length=500)
-    document_type: str = Field(min_length=1, max_length=50)
-    content: Budget
+    # Per-item bounds: the embeddings API rejects empty strings, and 8192
+    # tokens is the model's context limit — 32k chars is a generous proxy
+    # that fails fast on pathological payloads without counting tokens here.
+    texts: list[Annotated[str, StringConstraints(min_length=1, max_length=32_000)]] = Field(
+        min_length=1, max_length=100
+    )
 
 
-class IngestResponse(BaseModel):
-    """Ingest endpoint output: identifiers and metrics, never the vectors."""
+class EncodeResponse(BaseModel):
+    """Encode endpoint output: one vector per input text, in input order."""
 
-    document_id: int
-    chunks_created: int = Field(ge=1)
+    model: str
     embedding_dimension: int = Field(ge=1)
-    ingestion_time_ms: int = Field(ge=0)
-
-
-class IngestConflict(BaseModel):
-    """409 body when the source_path was already ingested."""
-
-    detail: str
-    document_id: int
+    embeddings: list[list[float]]
+    encode_time_ms: int = Field(ge=0)
 
 
 class SearchRequest(BaseModel):

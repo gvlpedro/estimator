@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from app.embedding_pipeline.router import router as embeddings_router
 from app.embedding_pipeline.router import search_router
+from app.ingest.router import router as ingest_router
 
 
 def configure_logging() -> None:
@@ -51,6 +52,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(ingest_router, prefix="/embeddings")
 app.include_router(embeddings_router, prefix="/embeddings")
 app.include_router(search_router)
 
