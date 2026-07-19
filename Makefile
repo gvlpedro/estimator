@@ -26,7 +26,7 @@ STRESS_COST_BUDGET      ?= 0.05
 STRESS_OUTPUT           ?= evals/stress/results.csv
 STRESS_REPORT           ?= evals/stress/REPORT.md
 
-.PHONY: setup run stop stress docker_run
+.PHONY: setup run stop stress docker_run db_upgrade seed_ia
 
 setup:
 	@command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -92,6 +92,17 @@ docker_run:
 
 docker_check:
 	docker compose exec postgres psql -U estimator -d estimator -c "SELECT version();"
+
+# Apply the AI service schema (documents + chunks + pgvector extension) to
+# the postgres of docker-compose. Requires the postgres service up.
+db_upgrade:
+	@export PATH="$$HOME/.local/bin:$$PATH"; uv run alembic upgrade head
+
+# Seed the vector store with the 15 historical budgets of the sample corpus.
+# Idempotent (409 = already ingested). Requires the AI service up (:8001)
+# and the schema applied (make db_upgrade).
+seed_ia:
+	@export PATH="$$HOME/.local/bin:$$PATH"; uv run python servicio_ia/scripts/seed_budgets.py
 
 stress:
 	@export PATH="$$HOME/.local/bin:$$PATH"; \
