@@ -42,6 +42,7 @@ def render_estimation_prompt(
     request: EstimationRequest,
     version: str = "v1",
     project_metadata: ProjectMetadata | None = None,
+    retrieved_context: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Render the (system, user) pair for the given estimation request.
 
@@ -53,6 +54,11 @@ def render_estimation_prompt(
     ``<project_metadata>`` block of the system prompt; when ``None`` or empty,
     the block renders empty but is still present (so the LLM always sees the
     same scaffold).
+
+    ``retrieved_context`` is the list of historical-budget chunks fetched from
+    the AI service's semantic search (raw ``results`` items from ``/search``).
+    Unlike ``reference_projects`` (caller-declared), these are system-retrieved
+    evidence; when ``None`` the block is omitted.
 
     Emits a ``prompt_rendered`` structlog event with the version, a 12-char
     SHA-256 of the rendered content, and flags indicating whether
@@ -75,6 +81,7 @@ def render_estimation_prompt(
             else None
         ),
         "project_metadata": metadata_for_template,
+        "retrieved_context": retrieved_context or None,
     }
     system = _env.get_template(f"estimation/{version}/system.j2").render(**ctx)
     user = _env.get_template(f"estimation/{version}/user.j2").render(**ctx)

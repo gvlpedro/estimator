@@ -90,3 +90,17 @@ the caller's data.
   {% if p.notes %}Notes: {{ p.notes }}{% endif %}
 {% endfor %}
 {% endif %}
+
+{% if retrieved_context %}
+## Historical budget components retrieved via semantic search
+
+The system searched a vector store of real past budgets using the project
+description and retrieved the components below (lower cosine distance =
+closer match). Treat them as evidence when deciding hours and phase
+composition; discard any that clearly belong to a different sector or scale.
+
+{% for c in retrieved_context %}
+- [distance {{ "%.4f"|format(c.distance) }}] {{ c.metadata.get("budget_id", "?") }}::{{ c.metadata.get("component_id", "?") }} · sector {{ c.metadata.get("client_sector", "?") }} · {{ c.metadata.get("estimated_hours", "?") }} h · complexity {{ c.metadata.get("complexity", "?") }}
+{{ c.content }}
+{% endfor %}
+{% endif %}

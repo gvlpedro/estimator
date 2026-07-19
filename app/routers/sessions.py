@@ -8,10 +8,10 @@ and accumulated project metadata across pages or HTTP calls.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.config import get_settings
-from app.dependencies import get_estimation_service, get_session_store
+from app.dependencies import get_ai_service_client, get_estimation_service, get_session_store
 from app.guardrails import InputGuardrailViolation
 from app.schemas.estimation import (
     DetailLevel,
@@ -20,11 +20,15 @@ from app.schemas.estimation import (
     ProjectType,
 )
 from app.schemas.log import (
+    RetrievalContextAttached,
+    RetrievalContextSkipped,
     SessionCreated,
     SessionEstimateBlockedByInputGuardrail,
     SessionEstimateEndpointError,
     SessionEstimateRequest,
 )
+from app.schemas.search import SearchResult
+from app.services.ai_client import AIServiceClient, AIServiceError
 from app.services.attachments import (
     AttachmentExtractionError,
     extract_attachment_text,
@@ -131,6 +135,7 @@ def estimate_in_session(
     output_format: OutputFormat = Form(default=OutputFormat.PHASES_TABLE),
     store: SessionStore = Depends(get_session_store),
     service: EstimationService = Depends(get_estimation_service),
+    ai_client: AIServiceClient = Depends(get_ai_service_client),
 ) -> EstimationResponse:
     """Run an estimation inside an existing session, optionally enriched with PDFs.
 
@@ -182,6 +187,35 @@ def estimate_in_session(
         description_chars=len(description),
     ).emit()
 
+    def fetch_retrieved_context() -> list[dict] | None:
+        """Best-effort retrieval of comparable historical-budget chunks.
+
+        Invoked by the estimation pipeline only on a cache miss, so cache hits
+        never pay the AI-service round-trip. The estimation must keep working
+        when the AI service is down or returns malformed data, so any failure
+        degrades to "no retrieved context" instead of an error. The [:2000]
+        cap matches the AI service's SearchRequest.query limit — a longer
+        transcript gets silently truncated for retrieval purposes.
+        """
+        try:
+            search_body = ai_client.search_sync(query=description[:2000], k=5)
+            results = [
+                SearchResult.model_validate(item).model_dump()
+                for item in search_body.get("results") or []
+            ]
+        except (AIServiceError, ValidationError) as exc:
+            RetrievalContextSkipped(session_id=session_id, error=str(exc)).emit()
+            return None
+        if not results:
+            RetrievalContextSkipped(session_id=session_id, error="no results").emit()
+            return None
+        RetrievalContextAttached(
+            session_id=session_id,
+            chunks=len(results),
+            top_distance=results[0]["distance"],
+        ).emit()
+        return results
+
     try:
         return service.estimate_conversational(
             session=session,
@@ -190,6 +224,7 @@ def estimate_in_session(
             project_type=project_type,
             detail_level=detail_level,
             output_format=output_format,
+            retrieved_context_provider=fetch_retrieved_context,
         )
     except InputGuardrailViolation as exc:
         SessionEstimateBlockedByInputGuardrail(

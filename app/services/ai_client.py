@@ -39,22 +39,50 @@ class AIServiceClient:
                     f"{self._base_url}/search",
                     json={"query": query, "k": k},
                 )
-                response.raise_for_status()
-                try:
-                    return response.json()
-                except ValueError as exc:
-                    log.error("ai_service_invalid_json", body=response.text[:500])
-                    raise AIServiceError("AI service returned invalid JSON") from exc
+                return self._parse_response(response)
         except httpx.HTTPStatusError as exc:
-            log.error(
-                "ai_service_search_failed",
-                status_code=exc.response.status_code,
-                body=exc.response.text[:500],
-            )
-            raise AIServiceError(
-                f"AI service returned {exc.response.status_code}",
-                status_code=exc.response.status_code,
-            ) from exc
+            raise self._status_error(exc) from exc
         except httpx.HTTPError as exc:
-            log.error("ai_service_unreachable", base_url=self._base_url, error=str(exc))
-            raise AIServiceError("AI service unreachable") from exc
+            raise self._transport_error(exc) from exc
+
+    def search_sync(self, query: str, k: int = 5) -> dict:
+        """Blocking variant of :meth:`search` for sync call paths.
+
+        The estimation pipeline is synchronous end-to-end (FastAPI runs those
+        routes in a threadpool); calling the async client there would require
+        an event-loop bridge, so this method exists instead.
+        """
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.post(
+                    f"{self._base_url}/search",
+                    json={"query": query, "k": k},
+                )
+                return self._parse_response(response)
+        except httpx.HTTPStatusError as exc:
+            raise self._status_error(exc) from exc
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc) from exc
+
+    def _parse_response(self, response: httpx.Response) -> dict:
+        response.raise_for_status()
+        try:
+            return response.json()
+        except ValueError as exc:
+            log.error("ai_service_invalid_json", body=response.text[:500])
+            raise AIServiceError("AI service returned invalid JSON") from exc
+
+    def _status_error(self, exc: httpx.HTTPStatusError) -> AIServiceError:
+        log.error(
+            "ai_service_search_failed",
+            status_code=exc.response.status_code,
+            body=exc.response.text[:500],
+        )
+        return AIServiceError(
+            f"AI service returned {exc.response.status_code}",
+            status_code=exc.response.status_code,
+        )
+
+    def _transport_error(self, exc: httpx.HTTPError) -> AIServiceError:
+        log.error("ai_service_unreachable", base_url=self._base_url, error=str(exc))
+        return AIServiceError("AI service unreachable")

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 from dataclasses import dataclass
@@ -143,6 +144,7 @@ class EstimationService:
         *,
         prompt_version: str | None = None,
         project_metadata: ProjectMetadata | None = None,
+        retrieved_context_provider: Callable[[], list[dict] | None] | None = None,
     ) -> tuple[EstimationResponse, _PipelineOps]:
         """Run cache lookup → LLM → guardrail → cache set, returning both the
         response and the operational counters needed for the per-turn aggregate."""
@@ -168,8 +170,17 @@ class EstimationService:
                 ),
             )
 
+        # Retrieval is deferred until after the cache lookup so a cache hit
+        # never pays the AI-service round-trip.
+        retrieved_context = (
+            retrieved_context_provider() if retrieved_context_provider else None
+        )
+
         system_prompt, user_message = render_estimation_prompt(
-            request, version=version, project_metadata=project_metadata
+            request,
+            version=version,
+            project_metadata=project_metadata,
+            retrieved_context=retrieved_context,
         )
 
         completion = self.llm_wrapper.complete_structured(
@@ -219,6 +230,7 @@ class EstimationService:
         detail_level: DetailLevel,
         output_format: OutputFormat,
         prompt_version: str | None = None,
+        retrieved_context_provider: Callable[[], list[dict] | None] | None = None,
     ) -> EstimationResponse:
         """One full conversational turn: cache → LLM → guardrail → history →
         metadata extractor → ``turn_observed`` event, exactly in this order.
@@ -243,6 +255,7 @@ class EstimationService:
             request,
             prompt_version=prompt_version,
             project_metadata=session.metadata,
+            retrieved_context_provider=retrieved_context_provider,
         )
 
         assistant_reply_json = response.result.model_dump_json()

@@ -107,6 +107,19 @@ class SessionEstimateRequest(LogEvent):
     description_chars: int = Field(ge=0)
 
 
+class RetrievalContextAttached(LogEvent):
+    event: ClassVar[str] = "retrieval_context_attached"
+    session_id: str
+    chunks: int = Field(ge=0)
+    top_distance: float | None = None
+
+
+class RetrievalContextSkipped(LogEvent):
+    event: ClassVar[str] = "retrieval_context_skipped"
+    session_id: str
+    error: str
+
+
 class SessionEstimateBlockedByInputGuardrail(LogEvent):
     event: ClassVar[str] = "session_estimate_blocked_by_input_guardrail"
     session_id: str
