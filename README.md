@@ -274,7 +274,7 @@ Primer paso hacia RAG: un servicio FastAPI independiente (`servicio_ia/`) que tr
 Con Docker (requiere rebuild la primera vez para instalar `tiktoken`):
 
 ```bash
-docker compose up --build ai_service
+docker compose up --build ai-service
 ```
 
 En local sin Docker (desde la raiz del repo):
@@ -321,7 +321,7 @@ El script embebe tres parejas de chunks y verifica que el orden de similitud cos
 El servicio IA persiste ahora los embeddings en Postgres con la extension `pgvector` (imagen `pgvector/pgvector:pg16` en el compose, schema gestionado con Alembic). Esto cambia dos cosas respecto a la Sesion 7:
 
 - `POST /embeddings/ingest` ya no devuelve los vectores: persiste documento + chunks en una transaccion unica y responde con identificadores y metricas. Nuevo endpoint `POST /search` de busqueda semantica por distancia coseno.
-- `scripts/compare.py` se reemplaza por `query_examples.py` (`docker compose run --rm ai_service python query_examples.py`), que ejercita `POST /search` con cinco queries representativas; el output de un run contra el corpus de ejemplo esta en `servicio_ia/output_examples.txt`. El servicio compose pasa a llamarse `ai_service`.
+- `scripts/compare.py` se reemplaza por `query_examples.py` (`docker compose run --rm ai-service python query_examples.py`), que ejercita `POST /search` con cinco queries representativas; el output de un run contra el corpus de ejemplo esta en `servicio_ia/output_examples.txt`. El servicio compose pasa a llamarse `ai-service`.
 
 Contratos, ejemplos y detalles operativos: [`servicio_ia/README.md`](servicio_ia/README.md).
 
@@ -411,4 +411,79 @@ La idea es hacer un script cada cierto tiempo ajustando el ef_search midiendo el
 * top K (número de chunks)
 * distancia (cuanto de cerca lo queremos): con algo crítico debe ser mayor y si es información general puede ser menor.
 * filtros
+
+## Comparativa de configuraciones
+
+| # | Consulta | `budget_id` relevantes | Diseño |
+|---|---|---|---|
+| Q1 | Mobile banking app con OAuth2, cumplimiento PSD2, SCA y libro de transacciones | `BUD-2024-001`, `BUD-2024-003` | Trampa: `BUD-2024-006` (vendor payouts e-commerce) parece pagos pero es dominio distinto |
+| Q2 | Storefront headless con catálogo, checkout y recomendaciones personalizadas | `BUD-2024-005`, `-006`, `-007`, `-017` | Trampa: presupuestos financieros/sanitarios comparten vocabulario pero no dominio |
+| Q3 | Telemedicina con citas, videoconsulta e integración HL7/FHIR | `BUD-2024-009`, `BUD-2024-010` | Trampa: `BUD-2024-011`/`-012` comparten sector sanitario, no funcionalidad |
+| Q4 | IoT industrial con telemetría para mantenimiento predictivo | `BUD-2024-013`, `BUD-2024-015` | Trampa: `BUD-2024-014` es industrial pero logística, no telemetría |
+| Q5 | Pasarela de pagos en tiempo real con detección de fraude y libro contable | `BUD-2024-003`, `BUD-2024-001` | Trampa: `BUD-2024-006`/`-007` son léxicamente cercanos pero dominio distinto |
+| Q6 | Parafraseo sin vocabulario compartido (evita "wearable", "monitoring", "alert", "dashboard") | `BUD-2024-010` | Ataca a léxico puro: sin lexemas que matchear |
+| Q7 | Jerga exacta (`k-anonymity`, `CDISC`) envuelta en narrativa de "privacidad sanitaria" | `BUD-2024-012` | Ataca a vectorial: cebo semántico hacia `BUD-2024-009` (mismo sector, presupuesto equivocado) |
+
+**Metodología.** `k=5`, `uv run python servicio_ia/golden_eval.py` (lee `evals/golden_retrieval.json`, cuatro configuraciones intercaladas por consulta con calentamiento previo sin medir). Dos cambios respecto a las primeras rondas de esta sección, los dos pedidos explícitamente al detectar que la precisión empataba siempre entre las cuatro configuraciones:
+
+- **Métrica por presupuesto distinto, no por chunk.** Antes, `precision@5` contaba cada una de las 5 posiciones del array de resultados por separado — si un presupuesto con 4 componentes casi duplicados (misma cabecera de proyecto/sector/stack en cada chunk, ver `app/ingest/chunker.py`) ocupaba 4 de los 5 huecos, eso contaba como 4 aciertos por una sola decisión real del buscador. Ahora se colapsan los `budget_id` del top-5 a distintos antes de contar — la misma lógica de `dedupe_by_budget`, aplicada en el cliente de medición.
+- **Deduplicación real en `/search`.** Nuevo parámetro `dedupe: bool` (compone con `mode` y `rerank`, default `false` — no cambia el comportamiento de ningún cliente existente): amplía el fetch a `RECALL_K=50`, se queda con el chunk mejor puntuado de cada presupuesto, y de ahí se recorta a `k`. Con `rerank=true`, la deduplicación se aplica **después** de repuntuar con el cross-encoder (para que este vea el pool completo de 50 candidatos, no uno ya empobrecido) y antes de truncar a `k`.
+
+Para aislar el efecto de cada palanca, `golden_eval.py` corre las 7 consultas × 4 configuraciones **dos veces con la misma métrica** — una con `dedupe: false` (retrieval de siempre) y otra con `dedupe: true` — en vez de mezclar ambos cambios en una sola tabla.
+
+### Pasada 1 — `dedupe: false`, métrica por presupuesto distinto
+
+| Config | Búsqueda | Reranking | Precisión@5 | Latencia media |
+|---|---|---|---|---|
+| A | Vectorial | No | 0.31 | 188 ms |
+| B | Híbrida (RRF) | No | 0.31 | 175 ms |
+| C | Vectorial | Sí | 0.31 | 552 ms |
+| D | Híbrida (RRF) | Sí | 0.31 | 575 ms |
+
+| Query | A | B | C | D |
+|---|---|---|---|---|
+| Q1 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q2 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q3 | 0.20 | 0.20 | 0.20 | 0.20 |
+| Q4 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q5 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q6 | 0.20 | 0.20 | 0.20 | 0.20 |
+| Q7 | 0.20 | 0.20 | 0.20 | 0.20 |
+
+**La corrección de métrica por sí sola es brutal: 0.83-0.92 (contando chunks) baja a 0.31 (contando presupuestos distintos).** Esa caída de más de 50 puntos mide exactamente cuánto estaba inflando la métrica anterior el hecho de que un mismo presupuesto ganador ocupara 3-4 de los 5 huecos. El número de ahora es el honesto — y confirma que, incluso con las trampas del golden set oficial y las dos consultas adversariales (Q6/Q7), **las cuatro configuraciones nunca dejan de empatar entre sí**, solo cambia cuánto empatan.
+
+### Pasada 2 — `dedupe: true`, misma métrica
+
+| Config | Búsqueda | Reranking | Precisión@5 | Latencia media |
+|---|---|---|---|---|
+| A | Vectorial | No | 0.40 | 176 ms |
+| B | Híbrida (RRF) | No | 0.40 | 185 ms |
+| C | Vectorial | Sí | 0.40 | 579 ms |
+| D | Híbrida (RRF) | Sí | 0.40 | 564 ms |
+
+| Query | A | B | C | D |
+|---|---|---|---|---|
+| Q1 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q2 | 0.80 | 0.80 | 0.80 | 0.80 |
+| Q3 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q4 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q5 | 0.40 | 0.40 | 0.40 | 0.40 |
+| Q6 | 0.20 | 0.20 | 0.20 | 0.20 |
+| Q7 | 0.20 | 0.20 | 0.20 | 0.20 |
+
+**La deduplicación real de `/search` sí mejora el rendimiento honesto — 0.31 → 0.40, con Q2 pasando de 0.40 a 0.80 — pero sigue sin haber diferencias entre las cuatro precisiones.
+
+## Conclusión: qué configuración usaríamos
+
+**Híbrida sin reranking, con deduplicación (`mode=hybrid, rerank=false, dedupe=true`).** No es la configuración con mejor precisión medida — las cuatro empatan siempre en este golden set — es la que gana en todo lo demás sin pagar nada a cambio:
+
+| Config | Coste  | Beneficio  |
+|---|---|---|
+| Híbrida (rama léxica) | ~0 ms (índice GIN, insignificante frente a la llamada a la API de embeddings) | Encuentra coincidencias exactas de término/jerga/acrónimo/nombre de proveedor que el vector difumina — verificado en este corpus: `"MQTT sensor telemetry ingestion"` en modo léxico devuelve un único resultado exacto (`BUD-2024-013::TELE-001`, `score=0.7973`) |
+| Deduplicación | ~0 ms (post-proceso en Python sobre filas ya traídas; ampliar el fetch de k=5 a `RECALL_K=50` es insignificante para pgvector/GIN) | +0.09 de precisión honesta (0.31→0.40) en las cuatro configuraciones por igual, sin excepción |
+| Reranking | ~+380-400 ms (3× la latencia base) | **Ninguno medido en precisión@5** en este golden set — 0.31/0.40 idéntico con y sin reranking, siempre |
+
+**¿Justifica el reranking su latencia en este caso de uso? Con la evidencia de este golden set, no — pero con una salvedad importante que no descartaría el mecanismo.** Dos veces en esta misma sesión vimos que el reranker sí hace algo real que precisión@5 no puede ver: en el paso 3 (corpus anterior, 63 chunks) demostramos con logs en vivo que promovía chunks del puesto 6-50 al top-5 cuando el vecino más cercano por embedding no era el correcto; y en Q6 de esta comparativa, el reranking sustituye un distractor de dominio completamente equivocado (`BUD-2024-013`, industrial) por uno "menos equivocado" (`BUD-2024-012`, mismo sector sanitario) — una decisión de calidad real que una métrica de pertenencia a conjunto no puede premiar cuando el presupuesto correcto ya aparecía de todas formas. El mecanismo funciona; lo que no funciona es que este golden set (16 presupuestos, 1-2 relevantes por consulta, los cuatro métodos ya en su techo de recall) tenga margen para que esa mejora de calidad se traduzca en más aciertos.
+
+Por eso lo dejamos como lo construimos — un flag por request (`rerank`), no una decisión fija de arquitectura — apagado por defecto, disponible para quien esté dispuesto a pagar ~400 ms cuando el caso lo justifique (una consulta ambigua donde de verdad conviene forzar el mejor ranking posible), y candidato a revisarse si cambia cualquiera de las tres condiciones que hoy neutralizan su beneficio medible: un corpus bastante más grande (donde `RECALL_K=50` deje de cubrir casi todo el catálogo, como ya pasaba con solo 58-63 chunks), un golden set donde algún método realmente **falle** en encontrar lo relevante en vez de solo discrepar en el relleno, o una métrica sensible al orden (MRR, nDCG) en vez de precisión@k.
 

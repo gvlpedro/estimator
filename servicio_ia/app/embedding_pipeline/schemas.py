@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, StringConstraints
 Sector = Literal["finance", "ecommerce", "healthcare", "industrial"]
 Complexity = Literal["low", "medium", "high"]
 
+# "vector": cosine similarity only. "lexical": Postgres full-text (ts_rank)
+# only. "hybrid": both branches fused by Reciprocal Rank Fusion. Default is
+# "vector" so existing callers (the business backend's search proxy, which
+# never sets `mode`) keep getting exactly today's response shape.
+SearchMode = Literal["vector", "lexical", "hybrid"]
+
 
 class Chunk(BaseModel):
     """A text fragment ready to be embedded.
@@ -62,16 +68,47 @@ class SearchRequest(BaseModel):
 
     query: str = Field(min_length=1, max_length=2000)
     k: int = Field(default=5, ge=1, le=50)
+    # Default preserves current behavior for every existing caller: the
+    # business backend's search proxy never sets this field.
+    mode: SearchMode = "vector"
+    # Recall-then-rerank toggle: when True, retrieval widens to a broad
+    # candidate set and a cross-encoder re-scores it to pick the final k (see
+    # app.generation.rag.retrieval.reranked_search). Default False preserves
+    # current behavior for every existing caller, same reasoning as `mode`.
+    rerank: bool = False
+    # Per-budget dedupe toggle: when True, the result is collapsed to at most
+    # one chunk per budget_id, keeping each budget's best-ranked chunk (see
+    # app.generation.rag.retrieval.dedupe.dedupe_by_budget). Composes with
+    # both `mode` and `rerank` — when True it widens the underlying fetch
+    # first so deduping still leaves room for k distinct budgets. Default
+    # False preserves current behavior for every existing caller, same
+    # reasoning as `mode` and `rerank`.
+    dedupe: bool = False
 
 
 class SearchResult(BaseModel):
-    """One retrieved chunk with its cosine distance to the query (lower = closer)."""
+    """One retrieved chunk, scored by whichever branch(es) `mode`/`rerank` selected.
+
+    The two score fields point in OPPOSITE directions — read `mode` and
+    `rerank` before reading the number:
+    - `distance`: cosine distance from the query embedding, lower = closer.
+      Populated only when `mode == "vector"` and `rerank is False`; `None`
+      otherwise.
+    - `score`: `None` only when `mode == "vector"` and `rerank is False`.
+      Otherwise: in "lexical" mode (rerank off) it is the raw `ts_rank`
+      weight; in "hybrid" mode (rerank off) it is the RRF fused score;
+      whenever `rerank is True` (regardless of `mode`) it is the
+      cross-encoder's relevance score, which is what actually determined the
+      final order — it supersedes the branch-native score, the two are never
+      shown together in one response row. Every case: higher = more relevant.
+    """
 
     chunk_id: int
     document_id: int
     chunk_type: str
     content: str
-    distance: float
+    distance: float | None = None
+    score: float | None = None
     metadata: dict[str, Any]
 
 

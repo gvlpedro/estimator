@@ -3,7 +3,7 @@
 **Solo este servicio con Docker:**
 
 ```bash
-docker compose up --build ai_service
+docker compose up --build ai-service
 ```
 
 **En local sin Docker (desde la raíz del repo):**
@@ -29,6 +29,12 @@ servicio_ia/app/
 │   ├── db.py            #   repositorio (todo el SQL vive aquí, incluido el
 │   ├── models.py        #   ranking vectorial por distancia coseno)
 │   └── repository.py
+├── generation/rag/retrieval/  # reranking de un shortlist: wrapper de cross-encoder
+│   ├── cross_encoder.py       #   (sentence-transformers, wired into POST /search via `rerank`)
+│   ├── rrf.py                 #   Reciprocal Rank Fusion — pure function, no I/O (English docstrings)
+│   ├── hybrid_search.py       #   orchestrates vector + lexical retrieval and fuses via RRF (English docstrings)
+│   ├── retrieve.py            #   shared per-mode dispatch (vector/lexical/hybrid), reused at any k (English docstrings)
+│   └── reranked_search.py     #   recall-then-rerank: wide retrieve() pass + cross-encoder re-score (English docstrings)
 ├── dependencies.py      # providers compartidos (embedder, chunker)
 └── main.py
 ```
@@ -145,10 +151,42 @@ Respuesta `200 OK` (resumida; `k` es opcional, por defecto 5):
       "chunk_type": "budget_component",
       "content": "[Project: ...]\n\nComponent: User authentication...",
       "distance": 0.4561,
+      "score": null,
       "metadata": {"budget_id": "BUD-2023-004", "client_sector": "finance", "...": "..."}
     }
   ]
 }
+```
+
+### POST /search — `mode` field
+
+`SearchRequest` accepts an optional `mode`, defaulting to `"vector"` so every existing caller (the business backend's search proxy never sets it) keeps getting today's response shape unchanged:
+
+- **`"vector"`** (default): embeds the query and ranks by cosine distance, as above. `distance` is populated, `score` is `null`.
+- **`"lexical"`**: ranks by Postgres full-text search (`ts_rank` over the generated `content_tsv` column, matched with `websearch_to_tsquery` so free-text queries work without a special syntax). No embedding call is made. `distance` is `null`, `score` holds the raw `ts_rank` weight (higher = more relevant).
+- **`"hybrid"`**: runs the vector and lexical branches independently (each gets its own top-k) and fuses them with Reciprocal Rank Fusion (`app/generation/rag/retrieval/rrf.py`) — rank position is fused, not raw scores, since cosine distance and `ts_rank` live on incomparable scales. `distance` is `null`, `score` holds the fused RRF score (higher = more relevant).
+
+```bash
+curl -X POST http://localhost:8001/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "MQTT sensor telemetry ingestion", "k": 5, "mode": "hybrid"}'
+```
+
+Note the inverted directionality between the two score fields: for `distance`, lower is better (it's a distance); for `score`, higher is better (it's a relevance weight). Only one of the two is ever non-null, depending on `mode`.
+
+### POST /search — `rerank` field (recall-then-rerank)
+
+`SearchRequest` also accepts an optional `rerank`, defaulting to `false` so every existing caller keeps getting today's response shape unchanged. When `true`, the endpoint layers a second stage on top of whichever `mode` is selected:
+
+1. **Recall**: run the exact same per-`mode` ranking (`app/generation/rag/retrieval/retrieve.py`) but widened to `RECALL_K = 50` candidates instead of the caller's `k` — this stage optimizes for coverage, not precision, so a relevant chunk ranked outside the plain top-k still gets a chance.
+2. **Rerank**: score every candidate's raw text against the query with a cross-encoder (`app/generation/rag/retrieval/cross_encoder.py`, `cross-encoder/ms-marco-MiniLM-L-6-v2`) — a model that reads the (query, document) pair jointly, more accurate than comparing independent embeddings but too expensive to run over the whole corpus, which is why it only ever sees the 50-candidate shortlist. The top `k` by cross-encoder score is returned.
+
+When `rerank` is `true`, `distance` is always `null` and `score` holds the cross-encoder's relevance score (higher = more relevant) — it replaces the branch-native score (cosine distance / `ts_rank` / RRF) shown when `rerank` is `false`, since that native score no longer determined the final order.
+
+```bash
+curl -X POST http://localhost:8001/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "REST API with OAuth authentication for fintech sector", "k": 5, "mode": "vector", "rerank": true}'
 ```
 
 **Por qué `cosine_distance` (`<=>`).** Los embeddings de OpenAI están normalizados, así que coseno e inner product rankean igual. Se usa coseno por convención RAG y porque el futuro índice HNSW usará `vector_cosine_ops`: si el operador de la query y la operator class del índice no coinciden, Postgres ignora el índice y cae a sequential scan **sin avisar**.
@@ -177,18 +215,27 @@ El embedding de la query lo hace el servidor, así que el script no necesita API
 uv run python servicio_ia/query_examples.py
 ```
 
-**Con Docker** (con el servicio levantado — `docker compose up -d ai_service`):
+**Con Docker** (con el servicio levantado — `docker compose up -d ai-service`):
 
 ```bash
-docker compose run --rm ai_service python query_examples.py
+docker compose run --rm ai-service python query_examples.py
 ```
 
-La URL base se puede cambiar con `SERVICIO_IA_BASE_URL`: por defecto `http://localhost:8001` en el host; el compose la fija a `http://ai_service:8001` para que los contenedores one-off de `docker compose run` lleguen a la API. El output de un run contra el corpus de ejemplo está en [`output_examples.txt`](output_examples.txt).
+La URL base se puede cambiar con `SERVICIO_IA_BASE_URL`: por defecto `http://localhost:8001` en el host; el compose la fija a `http://ai-service:8001` para que los contenedores one-off de `docker compose run` lleguen a la API. El output de un run contra el corpus de ejemplo está en [`output_examples.txt`](output_examples.txt).
+
+## Golden-set evaluation (golden_eval.py)
+
+Lee las 7 consultas de `evals/golden_retrieval.json` (5 adoptadas del golden set oficial del repositorio de referencia del curso + 2 propias dirigidas al punto débil de cada método — ver "Golden set y comparativa de configuraciones" en el [README raíz](../README.md#retrieval)) y las ejecuta contra las cuatro configuraciones (`vector`/`hybrid` x `rerank` on/off), **dos veces** — con `dedupe: false` y `dedupe: true` — para aislar el efecto de deduplicar por presupuesto antes de contar aciertos. Imprime precisión@5 (por presupuesto distinto, no por chunk) y latencia por configuración y pasada, más el desglose por consulta. Mismos requisitos que `query_examples.py` (servicio levantado, corpus ingestado, sin dependencias):
+
+```bash
+uv run python servicio_ia/golden_eval.py                # fuera del contenedor
+docker compose run --rm ai-service python golden_eval.py  # con Docker
+```
 
 ## Logs
 
 Eventos estructurados (structlog, convención del proyecto): `embedding_ingest_received`, `embedding_ingest_duplicate` (409), `embedding_batch_processed` (chunks, tokens reales del `usage`, latencia), `embedding_rate_limited`, `embedding_ingest_completed`, `embedding_ingest_failed`, `encode_received`, `encode_completed`, `encode_failed`, `search_received`, `search_completed`, `search_failed`.
 
 ```bash
-docker compose logs -f ai_service
+docker compose logs -f ai-service
 ```
