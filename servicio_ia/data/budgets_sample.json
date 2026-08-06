@@ -1,583 +1,6 @@
 [
   {
-    "budget_id": "BUD-2022-001",
-    "client_metadata": {
-      "name": "MediTrack",
-      "sector": "healthcare",
-      "country": "DE"
-    },
-    "project_summary": "Electronic health records platform with FHIR-compliant API and HL7 integration for hospital networks",
-    "main_technology": "java_spring",
-    "year": 2022,
-    "total_estimated_hours": 460,
-    "components": [
-      {
-        "component_id": "EHR-001",
-        "name": "FHIR patient records API",
-        "description": "RESTful API implementing FHIR R4 resources (Patient, Encounter, Observation) with versioning, terminology validation against SNOMED CT, and consent-based access control.",
-        "tech_stack": ["java_spring", "postgresql", "hapi_fhir"],
-        "estimated_hours": 180,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "INT-001",
-        "name": "HL7 v2 hospital integration",
-        "description": "Bidirectional HL7 v2.x messaging engine (ADT, ORM, ORU) with message transformation to FHIR, retry queues, and per-hospital routing configuration.",
-        "tech_stack": ["java_spring", "rabbitmq", "mirth_connect"],
-        "estimated_hours": 140,
-        "complexity": "high",
-        "dependencies": ["EHR-001"]
-      },
-      {
-        "component_id": "SCH-001",
-        "name": "Appointment scheduling module",
-        "description": "Slot-based scheduling with practitioner calendars, conflict detection, recurring availability rules, and patient self-booking portal.",
-        "tech_stack": ["java_spring", "postgresql", "react"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["EHR-001"]
-      },
-      {
-        "component_id": "AUD-001",
-        "name": "GDPR audit logging",
-        "description": "Immutable audit trail of all patient data access with retention policies, anonymized export for compliance reviews, and alerting on unusual access patterns.",
-        "tech_stack": ["java_spring", "elasticsearch"],
-        "estimated_hours": 50,
-        "complexity": "medium",
-        "dependencies": []
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2022-002",
-    "client_metadata": {
-      "name": "SteelWorks Iberia",
-      "sector": "industrial",
-      "country": "ES"
-    },
-    "project_summary": "Plant monitoring system ingesting SCADA telemetry with real-time dashboards and alerting for steel production lines",
-    "main_technology": "dotnet",
-    "year": 2022,
-    "total_estimated_hours": 380,
-    "components": [
-      {
-        "component_id": "ING-001",
-        "name": "SCADA telemetry ingestion",
-        "description": "OPC UA client service ingesting sensor data from 12 production lines, with buffering for network outages, unit normalization, and dead-band filtering.",
-        "tech_stack": ["dotnet", "opc_ua", "timescaledb"],
-        "estimated_hours": 150,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "DSH-001",
-        "name": "Real-time plant dashboard",
-        "description": "Operator dashboard with live line status, temperature and pressure gauges, shift KPIs, and drill-down to individual sensor history.",
-        "tech_stack": ["blazor", "signalr", "timescaledb"],
-        "estimated_hours": 100,
-        "complexity": "medium",
-        "dependencies": ["ING-001"]
-      },
-      {
-        "component_id": "ALR-001",
-        "name": "Threshold alerting engine",
-        "description": "Configurable alert rules per sensor with escalation chains (SMS, email, plant PA), acknowledgement workflow, and alert fatigue suppression.",
-        "tech_stack": ["dotnet", "redis", "twilio"],
-        "estimated_hours": 70,
-        "complexity": "medium",
-        "dependencies": ["ING-001"]
-      },
-      {
-        "component_id": "RPT-001",
-        "name": "Production shift reporting",
-        "description": "Automated PDF shift reports with downtime summaries, OEE metrics, and export to the existing SAP plant maintenance module.",
-        "tech_stack": ["dotnet", "sap_rfc"],
-        "estimated_hours": 60,
-        "complexity": "low",
-        "dependencies": ["ING-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2022-003",
-    "client_metadata": {
-      "name": "FreshMarket",
-      "sector": "ecommerce",
-      "country": "FR"
-    },
-    "project_summary": "Online grocery marketplace with delivery slot management and rider mobile app for last-mile logistics",
-    "main_technology": "nodejs",
-    "year": 2022,
-    "total_estimated_hours": 410,
-    "components": [
-      {
-        "component_id": "STF-001",
-        "name": "Grocery storefront",
-        "description": "Next.js storefront with category browsing, substitution preferences, weight-based pricing for fresh produce, and SSR for SEO.",
-        "tech_stack": ["nextjs", "nodejs", "postgresql"],
-        "estimated_hours": 100,
-        "complexity": "medium",
-        "dependencies": []
-      },
-      {
-        "component_id": "SLT-001",
-        "name": "Delivery slot management",
-        "description": "Capacity-based delivery slot engine per postal zone with dynamic pricing for peak slots, cutoff rules, and slot reservation during checkout.",
-        "tech_stack": ["nodejs", "redis", "postgresql"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["STF-001"]
-      },
-      {
-        "component_id": "RDR-001",
-        "name": "Rider mobile app",
-        "description": "React Native app for delivery riders with route manifest, proof-of-delivery photo capture, offline mode for parking garages, and cold-chain checklist.",
-        "tech_stack": ["react_native", "nodejs", "mapbox"],
-        "estimated_hours": 150,
-        "complexity": "high",
-        "dependencies": ["SLT-001"]
-      },
-      {
-        "component_id": "PAY-001",
-        "name": "Payment and refund processing",
-        "description": "Stripe integration with pre-authorization at checkout, final capture after weighing, and automated partial refunds for out-of-stock items.",
-        "tech_stack": ["nodejs", "stripe"],
-        "estimated_hours": 70,
-        "complexity": "medium",
-        "dependencies": ["STF-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2023-004",
-    "client_metadata": {
-      "name": "IberPay",
-      "sector": "finance",
-      "country": "ES"
-    },
-    "project_summary": "Open banking aggregation platform with PSD2 payment initiation and multi-bank account consolidation",
-    "main_technology": "ruby_on_rails",
-    "year": 2023,
-    "total_estimated_hours": 480,
-    "components": [
-      {
-        "component_id": "AUTH-001",
-        "name": "OAuth 2.0 authentication backend",
-        "description": "OAuth 2.0 flows (authorization code with PKCE, client credentials) with JWT session management, token rotation, and per-client rate limiting.",
-        "tech_stack": ["ruby_on_rails", "postgresql", "redis"],
-        "estimated_hours": 120,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "PAY-001",
-        "name": "PSD2 payment initiation service",
-        "description": "PIS integration against 8 Spanish banks via Berlin Group NextGenPSD2 APIs, with SCA redirect handling, payment status polling, and idempotent retries.",
-        "tech_stack": ["ruby_on_rails", "postgresql", "sidekiq"],
-        "estimated_hours": 160,
-        "complexity": "high",
-        "dependencies": ["AUTH-001"]
-      },
-      {
-        "component_id": "ACC-001",
-        "name": "Account aggregation engine",
-        "description": "AIS consent lifecycle management, scheduled balance and transaction sync per bank, transaction deduplication, and category enrichment.",
-        "tech_stack": ["ruby_on_rails", "postgresql", "sidekiq"],
-        "estimated_hours": 100,
-        "complexity": "medium",
-        "dependencies": ["AUTH-001"]
-      },
-      {
-        "component_id": "NOT-001",
-        "name": "Notification service",
-        "description": "Push and email notifications for payment status changes and consent expiry, with per-user channel preferences and delivery tracking.",
-        "tech_stack": ["ruby_on_rails", "firebase", "sendgrid"],
-        "estimated_hours": 60,
-        "complexity": "low",
-        "dependencies": ["PAY-001"]
-      },
-      {
-        "component_id": "ADM-001",
-        "name": "Back-office admin panel",
-        "description": "Internal console for support agents: consent lookup, payment trace viewer, bank connector health status, and manual retry triggers.",
-        "tech_stack": ["ruby_on_rails", "hotwire"],
-        "estimated_hours": 40,
-        "complexity": "low",
-        "dependencies": ["ACC-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2023-005",
-    "client_metadata": {
-      "name": "NordShop",
-      "sector": "ecommerce",
-      "country": "SE"
-    },
-    "project_summary": "Multi-vendor marketplace platform with Elasticsearch-powered search and a personalized recommendation engine",
-    "main_technology": "python_django",
-    "year": 2023,
-    "total_estimated_hours": 480,
-    "components": [
-      {
-        "component_id": "CAT-001",
-        "name": "Product catalog service",
-        "description": "Multi-vendor catalog with variant management, bulk CSV import per vendor, image processing pipeline, and category taxonomy administration.",
-        "tech_stack": ["python_django", "postgresql", "celery"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": []
-      },
-      {
-        "component_id": "CHK-001",
-        "name": "Cart and multi-vendor checkout",
-        "description": "Cart splitting per vendor, shipping cost calculation per parcel, order orchestration across vendors, and stock reservation with expiry.",
-        "tech_stack": ["python_django", "postgresql", "redis"],
-        "estimated_hours": 130,
-        "complexity": "high",
-        "dependencies": ["CAT-001"]
-      },
-      {
-        "component_id": "PAY-001",
-        "name": "Payment split and vendor payouts",
-        "description": "Stripe Connect integration with payment splitting per vendor, commission calculation, scheduled payouts, and refund reconciliation.",
-        "tech_stack": ["python_django", "stripe"],
-        "estimated_hours": 70,
-        "complexity": "medium",
-        "dependencies": ["CHK-001"]
-      },
-      {
-        "component_id": "SRC-001",
-        "name": "Search and faceted navigation",
-        "description": "Elasticsearch-backed product search with typo tolerance, Swedish language analyzers, faceted filters, and near-real-time index sync from the catalog.",
-        "tech_stack": ["elasticsearch", "python_django"],
-        "estimated_hours": 80,
-        "complexity": "medium",
-        "dependencies": ["CAT-001"]
-      },
-      {
-        "component_id": "REC-001",
-        "name": "Recommendation engine",
-        "description": "Collaborative filtering recommendations (also-bought, similar items) with nightly model training, cold-start fallback rules, and A/B test hooks.",
-        "tech_stack": ["python", "scikit_learn", "redis"],
-        "estimated_hours": 110,
-        "complexity": "high",
-        "dependencies": ["CAT-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2023-006",
-    "client_metadata": {
-      "name": "CareConnect",
-      "sector": "healthcare",
-      "country": "UK"
-    },
-    "project_summary": "Telemedicine platform with video consultations, e-prescriptions, and NHS Spine integration",
-    "main_technology": "python_fastapi",
-    "year": 2023,
-    "total_estimated_hours": 470,
-    "components": [
-      {
-        "component_id": "VID-001",
-        "name": "Video consultation module",
-        "description": "WebRTC video consultations via Twilio with waiting room, session recording consent flow, connection quality fallback to audio, and consultation notes.",
-        "tech_stack": ["python_fastapi", "twilio", "react"],
-        "estimated_hours": 160,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "RXP-001",
-        "name": "E-prescription module",
-        "description": "Electronic prescriptions with dm+d drug dictionary lookup, interaction warnings, controlled substance restrictions, and pharmacy dispatch integration.",
-        "tech_stack": ["python_fastapi", "postgresql"],
-        "estimated_hours": 100,
-        "complexity": "high",
-        "dependencies": ["VID-001"]
-      },
-      {
-        "component_id": "PRT-001",
-        "name": "Patient portal",
-        "description": "Patient-facing portal for appointment booking, consultation history, document uploads, and prescription status tracking.",
-        "tech_stack": ["react", "python_fastapi", "postgresql"],
-        "estimated_hours": 80,
-        "complexity": "medium",
-        "dependencies": ["VID-001"]
-      },
-      {
-        "component_id": "NHS-001",
-        "name": "NHS Spine integration",
-        "description": "Integration with NHS Spine services: PDS patient lookup and demographic sync, smartcard-based clinician authentication, and MESH message exchange.",
-        "tech_stack": ["python_fastapi", "hl7_fhir"],
-        "estimated_hours": 130,
-        "complexity": "high",
-        "dependencies": ["RXP-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2023-007",
-    "client_metadata": {
-      "name": "AutoParts GmbH",
-      "sector": "industrial",
-      "country": "DE"
-    },
-    "project_summary": "B2B ordering platform for automotive spare parts with EDI integration and warehouse management",
-    "main_technology": "java_spring",
-    "year": 2023,
-    "total_estimated_hours": 455,
-    "components": [
-      {
-        "component_id": "ORD-001",
-        "name": "B2B ordering portal",
-        "description": "Dealer-facing portal with customer-specific price lists, VIN-based part compatibility search, bulk order upload, and credit limit enforcement.",
-        "tech_stack": ["java_spring", "angular", "postgresql"],
-        "estimated_hours": 130,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "EDI-001",
-        "name": "EDI supplier integration",
-        "description": "EDIFACT message exchange (ORDERS, DESADV, INVOIC) with 15 suppliers, mapping engine per supplier profile, and automated acknowledgement handling.",
-        "tech_stack": ["java_spring", "apache_camel", "rabbitmq"],
-        "estimated_hours": 120,
-        "complexity": "high",
-        "dependencies": ["ORD-001"]
-      },
-      {
-        "component_id": "WMS-001",
-        "name": "Warehouse management module",
-        "description": "Bin-location inventory tracking, pick-list generation with route optimization inside the warehouse, barcode scanning flows, and cycle counting.",
-        "tech_stack": ["java_spring", "postgresql", "zebra_sdk"],
-        "estimated_hours": 135,
-        "complexity": "high",
-        "dependencies": ["ORD-001"]
-      },
-      {
-        "component_id": "ANL-001",
-        "name": "Sales analytics dashboard",
-        "description": "Dealer and product-line sales analytics with monthly trend charts, dead-stock detection, and scheduled Excel exports for area managers.",
-        "tech_stack": ["java_spring", "metabase"],
-        "estimated_hours": 70,
-        "complexity": "medium",
-        "dependencies": ["ORD-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2024-008",
-    "client_metadata": {
-      "name": "PagoLatam",
-      "sector": "finance",
-      "country": "MX"
-    },
-    "project_summary": "Digital wallet with KYC onboarding, card issuing, and real-time fraud detection for the Mexican market",
-    "main_technology": "nodejs",
-    "year": 2024,
-    "total_estimated_hours": 540,
-    "components": [
-      {
-        "component_id": "WAL-001",
-        "name": "Wallet core ledger",
-        "description": "Double-entry ledger for wallet balances with idempotent transaction processing, SPEI transfer integration, and end-of-day reconciliation against the sponsor bank.",
-        "tech_stack": ["nodejs", "postgresql", "kafka"],
-        "estimated_hours": 170,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "KYC-001",
-        "name": "KYC onboarding flow",
-        "description": "Tiered KYC with INE document capture and OCR, liveness detection via third-party SDK, CURP/RFC validation, and manual review queue for edge cases.",
-        "tech_stack": ["nodejs", "react_native", "aws_rekognition"],
-        "estimated_hours": 120,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "CRD-001",
-        "name": "Card issuing integration",
-        "description": "Virtual and physical card issuing via processor API, card lifecycle management (activate, freeze, replace), and webhook-driven transaction authorization.",
-        "tech_stack": ["nodejs", "postgresql"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["WAL-001", "KYC-001"]
-      },
-      {
-        "component_id": "FRD-001",
-        "name": "Fraud detection rules engine",
-        "description": "Real-time rules engine evaluating velocity checks, geolocation anomalies, and device fingerprints on each transaction, with case management for analysts.",
-        "tech_stack": ["nodejs", "kafka", "redis"],
-        "estimated_hours": 110,
-        "complexity": "high",
-        "dependencies": ["WAL-001"]
-      },
-      {
-        "component_id": "SUP-001",
-        "name": "Customer support console",
-        "description": "Internal console for support agents with transaction search, dispute intake, KYC status override with dual approval, and audit trail.",
-        "tech_stack": ["react", "nodejs"],
-        "estimated_hours": 50,
-        "complexity": "low",
-        "dependencies": ["WAL-001", "KYC-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2024-009",
-    "client_metadata": {
-      "name": "ModaExpress",
-      "sector": "ecommerce",
-      "country": "ES"
-    },
-    "project_summary": "Fashion e-commerce replatform with ERP inventory synchronization and a customer loyalty program",
-    "main_technology": "php_laravel",
-    "year": 2024,
-    "total_estimated_hours": 380,
-    "components": [
-      {
-        "component_id": "STF-001",
-        "name": "Storefront replatform",
-        "description": "Laravel-based storefront with size-guide tooling, lookbook content blocks, wishlist, and migration of 40k SKUs and customer accounts from Prestashop.",
-        "tech_stack": ["php_laravel", "mysql", "livewire"],
-        "estimated_hours": 110,
-        "complexity": "medium",
-        "dependencies": []
-      },
-      {
-        "component_id": "ERP-001",
-        "name": "ERP inventory synchronization",
-        "description": "Near-real-time stock sync with Microsoft Dynamics ERP across 3 physical stores and the central warehouse, with conflict resolution and oversell protection.",
-        "tech_stack": ["php_laravel", "mysql", "dynamics_api"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["STF-001"]
-      },
-      {
-        "component_id": "CHK-001",
-        "name": "Checkout and payments",
-        "description": "One-page checkout with Redsys and Bizum integration, express checkout for returning customers, and abandoned cart recovery emails.",
-        "tech_stack": ["php_laravel", "redsys", "mysql"],
-        "estimated_hours": 120,
-        "complexity": "high",
-        "dependencies": ["STF-001", "ERP-001"]
-      },
-      {
-        "component_id": "LOY-001",
-        "name": "Loyalty program",
-        "description": "Points-based loyalty program with tier levels, birthday rewards, points redemption at checkout, and in-store redemption via QR codes.",
-        "tech_stack": ["php_laravel", "mysql"],
-        "estimated_hours": 60,
-        "complexity": "low",
-        "dependencies": ["CHK-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2024-010",
-    "client_metadata": {
-      "name": "CryptoVault",
-      "sector": "finance",
-      "country": "US"
-    },
-    "project_summary": "Institutional digital asset custody platform with trading API and regulatory compliance reporting",
-    "main_technology": "golang",
-    "year": 2024,
-    "total_estimated_hours": 510,
-    "components": [
-      {
-        "component_id": "CUS-001",
-        "name": "Custody engine",
-        "description": "Multi-signature wallet orchestration with HSM-backed key management, withdrawal policy engine (quorum approvals, whitelisted addresses), and cold storage workflows.",
-        "tech_stack": ["golang", "postgresql", "aws_cloudhsm"],
-        "estimated_hours": 200,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "TRD-001",
-        "name": "Trading API",
-        "description": "REST and WebSocket trading API with smart order routing across 3 liquidity venues, rate limiting per API key, and FIX gateway for institutional clients.",
-        "tech_stack": ["golang", "kafka", "redis"],
-        "estimated_hours": 140,
-        "complexity": "high",
-        "dependencies": ["CUS-001"]
-      },
-      {
-        "component_id": "CMP-001",
-        "name": "Compliance reporting",
-        "description": "Automated AML transaction monitoring with chain-analysis provider integration, SAR case management, and scheduled regulatory reports (FinCEN, state regulators).",
-        "tech_stack": ["golang", "postgresql"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["CUS-001", "TRD-001"]
-      },
-      {
-        "component_id": "DSH-001",
-        "name": "Client web dashboard",
-        "description": "Institutional client dashboard with portfolio overview, withdrawal request initiation and approval tracking, API key management, and statement downloads.",
-        "tech_stack": ["react", "typescript", "golang"],
-        "estimated_hours": 80,
-        "complexity": "medium",
-        "dependencies": ["TRD-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2024-011",
-    "client_metadata": {
-      "name": "InsurTech Seguros",
-      "sector": "finance",
-      "country": "ES"
-    },
-    "project_summary": "Insurance policy quotation engine with claims workflow automation and document OCR processing",
-    "main_technology": "dotnet",
-    "year": 2024,
-    "total_estimated_hours": 470,
-    "components": [
-      {
-        "component_id": "QUO-001",
-        "name": "Policy quotation engine",
-        "description": "Rules-driven quotation engine for auto and home insurance with rating tables, underwriting rules editor for actuaries, and comparator aggregator API.",
-        "tech_stack": ["dotnet", "sql_server", "rules_engine"],
-        "estimated_hours": 150,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "CLM-001",
-        "name": "Claims workflow automation",
-        "description": "Claims intake with guided FNOL flow, automatic adjuster assignment by zone and workload, repair shop network integration, and SLA tracking with escalations.",
-        "tech_stack": ["dotnet", "sql_server", "azure_service_bus"],
-        "estimated_hours": 130,
-        "complexity": "high",
-        "dependencies": ["QUO-001"]
-      },
-      {
-        "component_id": "OCR-001",
-        "name": "Document OCR pipeline",
-        "description": "OCR extraction from claim documents (police reports, invoices, medical reports) using Azure Form Recognizer, with field validation and human-in-the-loop correction UI.",
-        "tech_stack": ["dotnet", "azure_form_recognizer"],
-        "estimated_hours": 100,
-        "complexity": "high",
-        "dependencies": ["CLM-001"]
-      },
-      {
-        "component_id": "PRT-001",
-        "name": "Customer self-service portal",
-        "description": "Policyholder portal for policy documents, claim status tracking with timeline view, payment method updates, and renewal management.",
-        "tech_stack": ["react", "dotnet", "sql_server"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["QUO-001", "CLM-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2024-014",
+    "budget_id": "BUD-2024-001",
     "client_metadata": {
       "name": "FintechCorp",
       "sector": "finance",
@@ -592,187 +15,979 @@
         "component_id": "AUTH-001",
         "name": "OAuth 2.0 authentication backend",
         "description": "Implementation of OAuth 2.0 flows (authorization code, refresh token) with JWT-based session management, multi-tenant token isolation, and rate limiting per client.",
-        "tech_stack": ["ruby_on_rails", "postgresql", "redis"],
+        "tech_stack": [
+          "ruby_on_rails",
+          "postgresql",
+          "redis"
+        ],
         "estimated_hours": 120,
         "complexity": "high",
         "dependencies": []
       },
       {
-        "component_id": "CNS-001",
-        "name": "PSD2 consent management",
-        "description": "Consent lifecycle for AIS and PIS access (creation, SCA confirmation, expiry, revocation) with TPP certificate validation and consent dashboard for end users.",
-        "tech_stack": ["ruby_on_rails", "postgresql"],
+        "component_id": "PSD2-002",
+        "name": "PSD2 open banking connectors",
+        "description": "Account information and payment initiation endpoints compliant with PSD2/Berlin Group, including strong customer authentication (SCA) and consent management.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "postgresql"
+        ],
+        "estimated_hours": 160,
+        "complexity": "high",
+        "dependencies": [
+          "AUTH-001"
+        ]
+      },
+      {
+        "component_id": "TXN-003",
+        "name": "Transaction ledger service",
+        "description": "Double-entry transaction ledger with idempotent writes, daily reconciliation jobs and an audit trail of every balance change.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "postgresql",
+          "sidekiq"
+        ],
         "estimated_hours": 140,
-        "complexity": "high",
-        "dependencies": ["AUTH-001"]
-      },
-      {
-        "component_id": "TXN-001",
-        "name": "Accounts and transactions API",
-        "description": "Berlin Group-compliant account information endpoints with pagination, balance snapshots, transaction enrichment, and response caching per consent scope.",
-        "tech_stack": ["ruby_on_rails", "postgresql", "redis"],
-        "estimated_hours": 110,
         "complexity": "medium",
-        "dependencies": ["CNS-001"]
+        "dependencies": [
+          "AUTH-001"
+        ]
       },
       {
-        "component_id": "SCA-001",
-        "name": "Strong customer authentication module",
-        "description": "SCA orchestration with SMS OTP and app-based push approval, exemption handling (low value, trusted beneficiaries), and fallback flows per PSD2 RTS.",
-        "tech_stack": ["ruby_on_rails", "redis", "firebase"],
-        "estimated_hours": 110,
-        "complexity": "high",
-        "dependencies": ["AUTH-001"]
+        "component_id": "NOTIF-004",
+        "name": "Push and email notifications",
+        "description": "Event-driven notifications for transaction alerts and security events delivered via APNs/FCM and transactional email.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "redis"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "TXN-003"
+        ]
       }
     ]
   },
   {
-    "budget_id": "BUD-2025-012",
+    "budget_id": "BUD-2024-002",
     "client_metadata": {
-      "name": "BioLabs Diagnostics",
+      "name": "LendFast",
+      "sector": "finance",
+      "country": "MX"
+    },
+    "project_summary": "Automated loan origination platform with credit scoring and e-signature",
+    "main_technology": "python_django",
+    "year": 2024,
+    "total_estimated_hours": 520,
+    "components": [
+      {
+        "component_id": "SCORE-001",
+        "name": "Credit scoring engine",
+        "description": "Rules-and-model based credit scoring service that ingests bureau data and bank statements, returning a risk band and recommended limit with full explainability logs.",
+        "tech_stack": [
+          "python_django",
+          "celery",
+          "postgresql"
+        ],
+        "estimated_hours": 200,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "ORIG-002",
+        "name": "Loan origination workflow",
+        "description": "Configurable application workflow with KYC checks, document upload, underwriting queue and automatic decisioning thresholds.",
+        "tech_stack": [
+          "python_django",
+          "postgresql"
+        ],
+        "estimated_hours": 180,
+        "complexity": "medium",
+        "dependencies": [
+          "SCORE-001"
+        ]
+      },
+      {
+        "component_id": "SIGN-003",
+        "name": "E-signature integration",
+        "description": "Integration with a qualified e-signature provider for legally binding loan contracts, including webhook handling and signed-document archival.",
+        "tech_stack": [
+          "python_django"
+        ],
+        "estimated_hours": 80,
+        "complexity": "low",
+        "dependencies": [
+          "ORIG-002"
+        ]
+      },
+      {
+        "component_id": "REPORT-004",
+        "name": "Regulatory reporting export",
+        "description": "Scheduled export of portfolio metrics and delinquency reports in regulator-mandated formats.",
+        "tech_stack": [
+          "python_django",
+          "pandas"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "ORIG-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-003",
+    "client_metadata": {
+      "name": "PayBridge",
+      "sector": "finance",
+      "country": "GB"
+    },
+    "project_summary": "Real-time payments gateway with fraud detection and reconciliation",
+    "main_technology": "java_spring",
+    "year": 2023,
+    "total_estimated_hours": 600,
+    "components": [
+      {
+        "component_id": "GATE-001",
+        "name": "Payment gateway core",
+        "description": "High-throughput payment authorization and capture service with idempotency keys, retry semantics and pluggable acquirer adapters.",
+        "tech_stack": [
+          "java_spring",
+          "kafka",
+          "postgresql"
+        ],
+        "estimated_hours": 220,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "FRAUD-002",
+        "name": "Real-time fraud detection",
+        "description": "Streaming fraud scoring on the authorization path using velocity rules and a gradient-boosted model served with sub-50ms latency.",
+        "tech_stack": [
+          "java_spring",
+          "kafka",
+          "redis"
+        ],
+        "estimated_hours": 200,
+        "complexity": "high",
+        "dependencies": [
+          "GATE-001"
+        ]
+      },
+      {
+        "component_id": "RECON-003",
+        "name": "Settlement reconciliation",
+        "description": "Daily settlement file ingestion and three-way reconciliation between gateway, acquirer and ledger with exception queues.",
+        "tech_stack": [
+          "java_spring",
+          "postgresql"
+        ],
+        "estimated_hours": 120,
+        "complexity": "medium",
+        "dependencies": [
+          "GATE-001"
+        ]
+      },
+      {
+        "component_id": "DASH-004",
+        "name": "Merchant dashboard",
+        "description": "Merchant-facing dashboard for transaction search, refunds and payout tracking.",
+        "tech_stack": [
+          "react",
+          "java_spring"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "GATE-001"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-004",
+    "client_metadata": {
+      "name": "WealthGrow",
+      "sector": "finance",
+      "country": "US"
+    },
+    "project_summary": "Robo-advisor portfolio rebalancing platform",
+    "main_technology": "python_fastapi",
+    "year": 2024,
+    "total_estimated_hours": 340,
+    "components": [
+      {
+        "component_id": "PORT-001",
+        "name": "Portfolio optimization service",
+        "description": "Mean-variance optimization and drift-based rebalancing engine that proposes trades to bring client portfolios back to target allocations.",
+        "tech_stack": [
+          "python_fastapi",
+          "postgresql"
+        ],
+        "estimated_hours": 160,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "MKT-002",
+        "name": "Market data ingestion",
+        "description": "Scheduled ingestion of end-of-day prices and corporate actions from a market data vendor with caching and gap detection.",
+        "tech_stack": [
+          "python_fastapi",
+          "redis"
+        ],
+        "estimated_hours": 100,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "ONB-003",
+        "name": "Client onboarding and risk profiling",
+        "description": "Questionnaire-driven risk profiling that maps a client to a model portfolio and persists the suitability record.",
+        "tech_stack": [
+          "python_fastapi",
+          "postgresql"
+        ],
+        "estimated_hours": 80,
+        "complexity": "low",
+        "dependencies": [
+          "PORT-001"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-005",
+    "client_metadata": {
+      "name": "ShopSphere",
+      "sector": "ecommerce",
+      "country": "ES"
+    },
+    "project_summary": "Headless e-commerce storefront with personalized recommendations",
+    "main_technology": "node",
+    "year": 2024,
+    "total_estimated_hours": 460,
+    "components": [
+      {
+        "component_id": "CATALOG-001",
+        "name": "Product catalog API",
+        "description": "GraphQL catalog API with faceted search, inventory availability and multi-currency pricing backed by Elasticsearch.",
+        "tech_stack": [
+          "node",
+          "graphql",
+          "elasticsearch"
+        ],
+        "estimated_hours": 150,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "CART-002",
+        "name": "Cart and checkout service",
+        "description": "Stateless cart service with promotion engine, tax calculation and a checkout orchestration that integrates the payment provider.",
+        "tech_stack": [
+          "node",
+          "redis",
+          "postgresql"
+        ],
+        "estimated_hours": 140,
+        "complexity": "high",
+        "dependencies": [
+          "CATALOG-001"
+        ]
+      },
+      {
+        "component_id": "RECO-003",
+        "name": "Personalized recommendations",
+        "description": "Collaborative-filtering recommendations served from a feature store and exposed as a low-latency API for product and cart pages.",
+        "tech_stack": [
+          "node",
+          "redis"
+        ],
+        "estimated_hours": 110,
+        "complexity": "medium",
+        "dependencies": [
+          "CATALOG-001"
+        ]
+      },
+      {
+        "component_id": "STORE-004",
+        "name": "Storefront PWA",
+        "description": "Progressive web app storefront consuming the headless APIs with server-side rendering for SEO.",
+        "tech_stack": [
+          "next_js",
+          "react"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "CART-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-006",
+    "client_metadata": {
+      "name": "MarketMingle",
+      "sector": "ecommerce",
+      "country": "DE"
+    },
+    "project_summary": "Multi-vendor marketplace with vendor payouts and dispute handling",
+    "main_technology": "ruby_on_rails",
+    "year": 2023,
+    "total_estimated_hours": 540,
+    "components": [
+      {
+        "component_id": "VENDOR-001",
+        "name": "Vendor onboarding and KYC",
+        "description": "Vendor self-service onboarding with identity verification, payout account setup and a manual review queue.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "postgresql"
+        ],
+        "estimated_hours": 130,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "ORDER-002",
+        "name": "Split order management",
+        "description": "Order splitting across vendors, per-vendor fulfillment state machines and customer-facing consolidated order tracking.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "sidekiq",
+          "postgresql"
+        ],
+        "estimated_hours": 170,
+        "complexity": "high",
+        "dependencies": [
+          "VENDOR-001"
+        ]
+      },
+      {
+        "component_id": "PAYOUT-003",
+        "name": "Vendor payouts engine",
+        "description": "Scheduled marketplace payouts with commission calculation, holdback for disputes and reconciliation against the payment processor.",
+        "tech_stack": [
+          "ruby_on_rails",
+          "postgresql"
+        ],
+        "estimated_hours": 140,
+        "complexity": "high",
+        "dependencies": [
+          "ORDER-002"
+        ]
+      },
+      {
+        "component_id": "DISP-004",
+        "name": "Dispute and refund handling",
+        "description": "Buyer-seller dispute workflow with evidence upload, SLA timers and partial refund support.",
+        "tech_stack": [
+          "ruby_on_rails"
+        ],
+        "estimated_hours": 100,
+        "complexity": "medium",
+        "dependencies": [
+          "ORDER-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-007",
+    "client_metadata": {
+      "name": "FreshCart",
+      "sector": "ecommerce",
+      "country": "FR"
+    },
+    "project_summary": "Grocery delivery app with slot booking and route optimization",
+    "main_technology": "go",
+    "year": 2024,
+    "total_estimated_hours": 420,
+    "components": [
+      {
+        "component_id": "SLOT-001",
+        "name": "Delivery slot booking",
+        "description": "Capacity-aware delivery slot service with optimistic locking to prevent overbooking and dynamic pricing for peak windows.",
+        "tech_stack": [
+          "go",
+          "postgresql",
+          "redis"
+        ],
+        "estimated_hours": 120,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "ROUTE-002",
+        "name": "Route optimization service",
+        "description": "Vehicle routing optimization that batches orders into delivery runs minimizing distance under time-window and capacity constraints.",
+        "tech_stack": [
+          "go"
+        ],
+        "estimated_hours": 180,
+        "complexity": "high",
+        "dependencies": [
+          "SLOT-001"
+        ]
+      },
+      {
+        "component_id": "INV-003",
+        "name": "Real-time inventory sync",
+        "description": "Near-real-time inventory synchronization from store systems with out-of-stock substitution suggestions.",
+        "tech_stack": [
+          "go",
+          "kafka"
+        ],
+        "estimated_hours": 120,
+        "complexity": "medium",
+        "dependencies": []
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-008",
+    "client_metadata": {
+      "name": "StyleLoop",
+      "sector": "ecommerce",
+      "country": "IT"
+    },
+    "project_summary": "Fashion returns management and resale portal",
+    "main_technology": "dotnet",
+    "year": 2023,
+    "total_estimated_hours": 300,
+    "components": [
+      {
+        "component_id": "RET-001",
+        "name": "Returns portal",
+        "description": "Self-service returns portal with label generation, reason capture and automatic restock or resale routing.",
+        "tech_stack": [
+          "dotnet",
+          "sqlserver"
+        ],
+        "estimated_hours": 140,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "GRADE-002",
+        "name": "Item grading workflow",
+        "description": "Warehouse grading workflow that classifies returned items and assigns resale price tiers.",
+        "tech_stack": [
+          "dotnet"
+        ],
+        "estimated_hours": 100,
+        "complexity": "low",
+        "dependencies": [
+          "RET-001"
+        ]
+      },
+      {
+        "component_id": "RESALE-003",
+        "name": "Resale listing sync",
+        "description": "Synchronization of graded resale items to the secondary storefront with availability and pricing updates.",
+        "tech_stack": [
+          "dotnet",
+          "sqlserver"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "GRADE-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-009",
+    "client_metadata": {
+      "name": "MediTrack",
       "sector": "healthcare",
       "country": "ES"
     },
-    "project_summary": "Laboratory information management system (LIMS) with analytical instrument integration and ISO 17025 compliance reporting",
+    "project_summary": "Patient appointment and telemedicine platform with HL7/FHIR integration",
     "main_technology": "python_django",
-    "year": 2025,
-    "total_estimated_hours": 450,
+    "year": 2024,
+    "total_estimated_hours": 560,
     "components": [
       {
-        "component_id": "LIM-001",
-        "name": "LIMS core workflow",
-        "description": "Sample lifecycle management from reception to result validation, test panel configuration, technician worklists, and two-step result approval with digital signature.",
-        "tech_stack": ["python_django", "postgresql", "celery"],
+        "component_id": "FHIR-001",
+        "name": "FHIR integration layer",
+        "description": "HL7 FHIR R4 integration that maps internal patient and encounter records to the hospital EHR, with terminology mapping and audit logging.",
+        "tech_stack": [
+          "python_django",
+          "postgresql"
+        ],
         "estimated_hours": 190,
         "complexity": "high",
         "dependencies": []
       },
       {
-        "component_id": "INS-001",
-        "name": "Instrument integration layer",
-        "description": "Bidirectional interfaces with 9 analytical instruments via ASTM E1381/HL7 protocols, driver abstraction per vendor, and automatic result capture with QC flags.",
-        "tech_stack": ["python", "asyncio", "rabbitmq"],
-        "estimated_hours": 120,
-        "complexity": "high",
-        "dependencies": ["LIM-001"]
-      },
-      {
-        "component_id": "TRK-001",
-        "name": "Sample tracking with barcodes",
-        "description": "Barcode label generation and scanning at each processing station, chain-of-custody log, storage location management with freezer maps, and expiry alerts.",
-        "tech_stack": ["python_django", "postgresql", "zebra_sdk"],
-        "estimated_hours": 80,
+        "component_id": "APPT-002",
+        "name": "Appointment scheduling",
+        "description": "Scheduling engine with clinician availability, resource booking, reminders and a waitlist for cancellations.",
+        "tech_stack": [
+          "python_django",
+          "celery"
+        ],
+        "estimated_hours": 150,
         "complexity": "medium",
-        "dependencies": ["LIM-001"]
+        "dependencies": [
+          "FHIR-001"
+        ]
       },
       {
-        "component_id": "ISO-001",
-        "name": "ISO 17025 compliance reports",
-        "description": "Audit-ready reporting: calibration schedules, method validation records, nonconformity tracking, and templated PDF reports for accreditation reviews.",
-        "tech_stack": ["python_django", "reportlab"],
-        "estimated_hours": 60,
-        "complexity": "medium",
-        "dependencies": ["LIM-001", "INS-001"]
-      }
-    ]
-  },
-  {
-    "budget_id": "BUD-2025-013",
-    "client_metadata": {
-      "name": "GridSense",
-      "sector": "industrial",
-      "country": "NL"
-    },
-    "project_summary": "IoT telemetry platform for wind farm monitoring with predictive maintenance based on machine learning",
-    "main_technology": "python_fastapi",
-    "year": 2025,
-    "total_estimated_hours": 470,
-    "components": [
-      {
-        "component_id": "IOT-001",
-        "name": "IoT telemetry ingestion",
-        "description": "MQTT ingestion pipeline for 200+ turbines (vibration, temperature, power output) with schema validation, backpressure handling, and edge buffering for connectivity gaps.",
-        "tech_stack": ["python_fastapi", "mqtt", "kafka"],
-        "estimated_hours": 140,
-        "complexity": "high",
-        "dependencies": []
-      },
-      {
-        "component_id": "TSD-001",
-        "name": "Time-series storage and downsampling",
-        "description": "TimescaleDB storage with continuous aggregates for hourly/daily rollups, retention tiers (raw 90 days, aggregated 5 years), and query API for analytics.",
-        "tech_stack": ["timescaledb", "python_fastapi"],
-        "estimated_hours": 90,
-        "complexity": "medium",
-        "dependencies": ["IOT-001"]
-      },
-      {
-        "component_id": "PDM-001",
-        "name": "Predictive maintenance models",
-        "description": "Anomaly detection on vibration signatures and gearbox temperature trends, remaining-useful-life estimation per component, model retraining pipeline, and drift monitoring.",
-        "tech_stack": ["python", "pytorch", "mlflow"],
+        "component_id": "VIDEO-003",
+        "name": "Telemedicine video sessions",
+        "description": "WebRTC-based video consultation with waiting room, in-call notes and secure recording consent handling.",
+        "tech_stack": [
+          "python_django",
+          "webrtc"
+        ],
         "estimated_hours": 160,
         "complexity": "high",
-        "dependencies": ["TSD-001"]
+        "dependencies": [
+          "APPT-002"
+        ]
       },
       {
-        "component_id": "OPS-001",
-        "name": "Operator dashboard",
-        "description": "Farm-level and turbine-level dashboards with health scores, maintenance recommendations ranked by risk, and work order export to the CMMS.",
-        "tech_stack": ["react", "typescript", "python_fastapi"],
-        "estimated_hours": 80,
-        "complexity": "medium",
-        "dependencies": ["TSD-001", "PDM-001"]
+        "component_id": "CONSENT-004",
+        "name": "Consent and audit module",
+        "description": "GDPR-aligned consent capture and immutable access audit trail for protected health information.",
+        "tech_stack": [
+          "python_django",
+          "postgresql"
+        ],
+        "estimated_hours": 60,
+        "complexity": "low",
+        "dependencies": [
+          "FHIR-001"
+        ]
       }
     ]
   },
   {
-    "budget_id": "BUD-2025-015",
+    "budget_id": "BUD-2024-010",
     "client_metadata": {
-      "name": "LogiFleet",
-      "sector": "industrial",
-      "country": "PT"
+      "name": "CarePulse",
+      "sector": "healthcare",
+      "country": "US"
     },
-    "project_summary": "Fleet management platform with GPS tracking, route optimization, and automated billing for a logistics operator",
-    "main_technology": "nodejs",
-    "year": 2025,
-    "total_estimated_hours": 460,
+    "project_summary": "Remote patient monitoring with wearable data ingestion and alerts",
+    "main_technology": "node",
+    "year": 2024,
+    "total_estimated_hours": 480,
     "components": [
       {
-        "component_id": "GPS-001",
-        "name": "Fleet GPS tracking",
-        "description": "Real-time position ingestion from 350 vehicle trackers via TCP protocol adapters, geofencing with entry/exit events, trip segmentation, and tachograph data import.",
-        "tech_stack": ["nodejs", "redis", "postgis"],
-        "estimated_hours": 130,
+        "component_id": "INGEST-001",
+        "name": "Wearable data ingestion",
+        "description": "High-volume ingestion pipeline for heart-rate, SpO2 and activity streams from wearables, with deduplication and schema validation.",
+        "tech_stack": [
+          "node",
+          "kafka",
+          "timescaledb"
+        ],
+        "estimated_hours": 180,
         "complexity": "high",
         "dependencies": []
       },
       {
-        "component_id": "RTE-001",
-        "name": "Route optimization engine",
-        "description": "Daily multi-stop route planning with time windows, vehicle capacity and driver hours constraints, traffic-aware ETAs, and mid-day re-optimization on new orders.",
-        "tech_stack": ["nodejs", "or_tools", "mapbox"],
+        "component_id": "ALERT-002",
+        "name": "Clinical alerting engine",
+        "description": "Threshold and trend-based alerting that escalates abnormal vitals to care teams with configurable rules per condition.",
+        "tech_stack": [
+          "node",
+          "redis"
+        ],
         "estimated_hours": 150,
         "complexity": "high",
-        "dependencies": ["GPS-001"]
+        "dependencies": [
+          "INGEST-001"
+        ]
       },
       {
-        "component_id": "DRV-001",
-        "name": "Driver mobile app",
-        "description": "React Native app with assigned route navigation, delivery status updates, digital signature capture, incident reporting with photos, and offline queue.",
-        "tech_stack": ["react_native", "nodejs"],
+        "component_id": "CARE-003",
+        "name": "Care team dashboard",
+        "description": "Dashboard for clinicians to triage alerts, view patient trends and acknowledge interventions.",
+        "tech_stack": [
+          "react",
+          "node"
+        ],
+        "estimated_hours": 150,
+        "complexity": "medium",
+        "dependencies": [
+          "ALERT-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-011",
+    "client_metadata": {
+      "name": "PharmaChain",
+      "sector": "healthcare",
+      "country": "CH"
+    },
+    "project_summary": "Pharmacy inventory and prescription fulfillment system",
+    "main_technology": "java_spring",
+    "year": 2023,
+    "total_estimated_hours": 400,
+    "components": [
+      {
+        "component_id": "RX-001",
+        "name": "Prescription intake and validation",
+        "description": "Electronic prescription intake with drug-interaction checks, dosage validation and pharmacist review queue.",
+        "tech_stack": [
+          "java_spring",
+          "postgresql"
+        ],
+        "estimated_hours": 170,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "STOCK-002",
+        "name": "Inventory and reorder",
+        "description": "Lot-and-expiry-aware inventory with automatic reorder points and supplier purchase orders.",
+        "tech_stack": [
+          "java_spring",
+          "postgresql"
+        ],
+        "estimated_hours": 140,
+        "complexity": "medium",
+        "dependencies": []
+      },
+      {
+        "component_id": "DISP-003",
+        "name": "Dispensing and labeling",
+        "description": "Dispensing workflow that prints compliant labels and records controlled-substance movements.",
+        "tech_stack": [
+          "java_spring"
+        ],
+        "estimated_hours": 90,
+        "complexity": "low",
+        "dependencies": [
+          "RX-001",
+          "STOCK-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-012",
+    "client_metadata": {
+      "name": "NeuroData",
+      "sector": "healthcare",
+      "country": "NL"
+    },
+    "project_summary": "Clinical trial data capture and anonymization platform",
+    "main_technology": "python_fastapi",
+    "year": 2024,
+    "total_estimated_hours": 380,
+    "components": [
+      {
+        "component_id": "EDC-001",
+        "name": "Electronic data capture forms",
+        "description": "Configurable eCRF builder with validation rules, query management and per-site access control for trial data entry.",
+        "tech_stack": [
+          "python_fastapi",
+          "postgresql"
+        ],
+        "estimated_hours": 180,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "ANON-002",
+        "name": "De-identification service",
+        "description": "Pseudonymization and de-identification pipeline that strips direct identifiers and applies k-anonymity checks before export.",
+        "tech_stack": [
+          "python_fastapi"
+        ],
         "estimated_hours": 120,
         "complexity": "medium",
-        "dependencies": ["RTE-001"]
+        "dependencies": [
+          "EDC-001"
+        ]
       },
       {
-        "component_id": "BIL-001",
-        "name": "Automated billing",
-        "description": "Invoice generation from completed trips with per-client tariff rules (distance, weight, waiting time), SAF-T PT compliant export, and monthly billing runs.",
-        "tech_stack": ["nodejs", "postgresql"],
-        "estimated_hours": 60,
+        "component_id": "EXPORT-003",
+        "name": "Regulatory dataset export",
+        "description": "CDISC-aligned dataset export for regulatory submission with reproducible builds and a manifest of transformations.",
+        "tech_stack": [
+          "python_fastapi",
+          "pandas"
+        ],
+        "estimated_hours": 80,
         "complexity": "low",
-        "dependencies": ["RTE-001"]
+        "dependencies": [
+          "ANON-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-013",
+    "client_metadata": {
+      "name": "SteelWorks",
+      "sector": "industrial",
+      "country": "ES"
+    },
+    "project_summary": "Factory IoT telemetry and predictive maintenance system",
+    "main_technology": "python_fastapi",
+    "year": 2024,
+    "total_estimated_hours": 500,
+    "components": [
+      {
+        "component_id": "TELE-001",
+        "name": "Sensor telemetry ingestion",
+        "description": "MQTT-based ingestion of machine sensor telemetry into a time-series store, with edge buffering and out-of-order handling.",
+        "tech_stack": [
+          "python_fastapi",
+          "mqtt",
+          "timescaledb"
+        ],
+        "estimated_hours": 170,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "PRED-002",
+        "name": "Predictive maintenance models",
+        "description": "Anomaly detection and remaining-useful-life models that flag machines at risk of failure and schedule maintenance windows.",
+        "tech_stack": [
+          "python_fastapi",
+          "scikit_learn"
+        ],
+        "estimated_hours": 200,
+        "complexity": "high",
+        "dependencies": [
+          "TELE-001"
+        ]
+      },
+      {
+        "component_id": "SCADA-003",
+        "name": "SCADA dashboard integration",
+        "description": "Read-only integration with the plant SCADA system to overlay predictive alerts on existing operator dashboards.",
+        "tech_stack": [
+          "python_fastapi"
+        ],
+        "estimated_hours": 130,
+        "complexity": "medium",
+        "dependencies": [
+          "PRED-002"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-014",
+    "client_metadata": {
+      "name": "LogiMove",
+      "sector": "industrial",
+      "country": "PL"
+    },
+    "project_summary": "Warehouse management system with automated guided vehicle coordination",
+    "main_technology": "go",
+    "year": 2023,
+    "total_estimated_hours": 620,
+    "components": [
+      {
+        "component_id": "WMS-001",
+        "name": "Warehouse management core",
+        "description": "Inventory, putaway and picking management with wave planning and barcode/RFID scanning support.",
+        "tech_stack": [
+          "go",
+          "postgresql"
+        ],
+        "estimated_hours": 220,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "AGV-002",
+        "name": "AGV coordination service",
+        "description": "Coordination service that assigns tasks to automated guided vehicles, manages traffic on shared aisles and recovers from stalls.",
+        "tech_stack": [
+          "go",
+          "grpc"
+        ],
+        "estimated_hours": 240,
+        "complexity": "high",
+        "dependencies": [
+          "WMS-001"
+        ]
+      },
+      {
+        "component_id": "YARD-003",
+        "name": "Yard and dock scheduling",
+        "description": "Dock-door appointment scheduling and yard movement tracking to reduce trailer dwell time.",
+        "tech_stack": [
+          "go",
+          "postgresql"
+        ],
+        "estimated_hours": 110,
+        "complexity": "medium",
+        "dependencies": [
+          "WMS-001"
+        ]
+      },
+      {
+        "component_id": "KPI-004",
+        "name": "Operations KPI reporting",
+        "description": "Throughput, accuracy and utilization reporting with shift-level rollups.",
+        "tech_stack": [
+          "go"
+        ],
+        "estimated_hours": 50,
+        "complexity": "low",
+        "dependencies": [
+          "WMS-001"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-015",
+    "client_metadata": {
+      "name": "GridNova",
+      "sector": "industrial",
+      "country": "DE"
+    },
+    "project_summary": "Energy grid monitoring and demand-response platform",
+    "main_technology": "java_spring",
+    "year": 2024,
+    "total_estimated_hours": 540,
+    "components": [
+      {
+        "component_id": "METER-001",
+        "name": "Smart meter data pipeline",
+        "description": "Ingestion and validation of smart-meter interval data at scale, with gap filling and unit normalization.",
+        "tech_stack": [
+          "java_spring",
+          "kafka",
+          "cassandra"
+        ],
+        "estimated_hours": 200,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "DR-002",
+        "name": "Demand-response engine",
+        "description": "Demand-response event engine that dispatches load-shedding signals to participating sites and verifies delivered curtailment.",
+        "tech_stack": [
+          "java_spring",
+          "postgresql"
+        ],
+        "estimated_hours": 200,
+        "complexity": "high",
+        "dependencies": [
+          "METER-001"
+        ]
+      },
+      {
+        "component_id": "FORECAST-003",
+        "name": "Load forecasting service",
+        "description": "Short-term load forecasting per substation feeding the demand-response scheduler.",
+        "tech_stack": [
+          "java_spring"
+        ],
+        "estimated_hours": 140,
+        "complexity": "medium",
+        "dependencies": [
+          "METER-001"
+        ]
+      }
+    ]
+  },
+  {
+    "budget_id": "BUD-2024-017",
+    "client_metadata": {
+      "name": "QuickShop MVP",
+      "sector": "ecommerce",
+      "country": "PT"
+    },
+    "project_summary": "Bare-bones e-commerce MVP scoped in one-line tickets",
+    "main_technology": "node",
+    "year": 2024,
+    "total_estimated_hours": 140,
+    "components": [
+      {
+        "component_id": "MVP-001",
+        "name": "Login page",
+        "description": "Email and password login.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 16,
+        "complexity": "low",
+        "dependencies": []
+      },
+      {
+        "component_id": "MVP-002",
+        "name": "Product list",
+        "description": "List products.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 20,
+        "complexity": "low",
+        "dependencies": []
+      },
+      {
+        "component_id": "MVP-003",
+        "name": "Cart",
+        "description": "Add to cart.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 24,
+        "complexity": "low",
+        "dependencies": [
+          "MVP-002"
+        ]
+      },
+      {
+        "component_id": "MVP-004",
+        "name": "Checkout",
+        "description": "Pay with card.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 40,
+        "complexity": "medium",
+        "dependencies": [
+          "MVP-003"
+        ]
+      },
+      {
+        "component_id": "MVP-005",
+        "name": "Order email",
+        "description": "Send receipt.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 12,
+        "complexity": "low",
+        "dependencies": [
+          "MVP-004"
+        ]
+      },
+      {
+        "component_id": "MVP-006",
+        "name": "Admin page",
+        "description": "Edit products.",
+        "tech_stack": [
+          "node"
+        ],
+        "estimated_hours": 28,
+        "complexity": "low",
+        "dependencies": []
       }
     ]
   }

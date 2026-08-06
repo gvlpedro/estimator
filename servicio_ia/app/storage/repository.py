@@ -8,7 +8,7 @@ ranking) stay in one place.
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.storage import models
@@ -82,6 +82,43 @@ async def nearest_chunks(
         # sessions); a NULL distance would be unrankable garbage in the top-k.
         .where(models.Chunk.embedding.is_not(None))
         .order_by(distance)
+        .limit(k)
+    )
+    return (await session.execute(stmt)).all()
+
+
+async def lexical_chunks(session: AsyncSession, query: str, k: int) -> Sequence[Row]:
+    """Return the k chunks that best match query via Postgres full-text search.
+
+    websearch_to_tsquery over plainto_tsquery/to_tsquery: it parses the same
+    free-text ``query`` string the vector branch already accepts (quotes for
+    phrases, "-" to exclude terms, implicit AND between words) instead of
+    requiring callers to learn tsquery's own operator syntax — hybrid search
+    calls both branches with the same raw string.
+
+    ts_rank weighs a match by lexeme frequency and position, which is why it
+    lives on a different, unbounded scale than cosine distance; the two are
+    never compared directly, only fused by rank position (see
+    generation/rag/retrieval/rrf.py).
+
+    A query that is empty after stopword removal (or has no lexemes at all)
+    produces a tsquery that matches nothing: the ``@@`` predicate below
+    naturally filters those rows out, so there is no special case needed for
+    "no meaningful search terms" — Postgres already returns an empty result.
+    """
+    tsquery = func.websearch_to_tsquery(models.FULLTEXT_SEARCH_CONFIG, query)
+    rank = func.ts_rank(models.Chunk.content_tsv, tsquery).label("rank")
+    stmt = (
+        select(
+            models.Chunk.id,
+            models.Chunk.document_id,
+            models.Chunk.chunk_type,
+            models.Chunk.content,
+            models.Chunk.meta,
+            rank,
+        )
+        .where(models.Chunk.content_tsv.op("@@")(tsquery))
+        .order_by(rank.desc())
         .limit(k)
     )
     return (await session.execute(stmt)).all()

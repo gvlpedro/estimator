@@ -16,12 +16,12 @@ services:
     # (redis://localhost:6379) is meant for running uvicorn outside Docker.
     environment:
       REDIS_URL: redis://redis:6379
-      AI_SERVICE_BASE_URL: http://ai_service:8001
+      AI_SERVICE_BASE_URL: http://ai-service:8001
 
     depends_on:
       redis:
         condition: service_healthy
-      ai_service:
+      ai-service:
         condition: service_healthy
 
     # Bind-mount the app/ directory so code changes are reflected immediately
@@ -72,7 +72,7 @@ services:
   # Reuses the same image; the working dir switch makes `app.main` resolve to
   # servicio_ia/app instead of the estimator's app/. The bind mount enables
   # --reload during development.
-  ai_service:
+  ai-service:
     build: .
     container_name: servicio-ia
     ports:
@@ -85,7 +85,7 @@ services:
     # containers (docker compose run), where localhost is NOT the API.
     environment:
       DATABASE_URL: postgresql+asyncpg://estimator:estimator@postgres:5432/estimator
-      SERVICIO_IA_BASE_URL: http://ai_service:8001
+      SERVICIO_IA_BASE_URL: http://ai-service:8001
     depends_on:
       postgres:
         condition: service_healthy

@@ -9,9 +9,12 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+
+from sqlalchemy import BigInteger, Computed, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+FULLTEXT_SEARCH_CONFIG = "english"
 
 # Dimensionality of text-embedding-3-small. Hardcoded on purpose: changing it
 # means re-embedding the whole corpus (see "Vector schema decisions" in the
@@ -45,7 +48,10 @@ class Document(Base):
 
 class Chunk(Base):
     __tablename__ = "chunks"
-    __table_args__ = (Index("ix_chunks_metadata_gin", "metadata", postgresql_using="gin"),)
+    __table_args__ = (
+        Index("ix_chunks_metadata_gin", "metadata", postgresql_using="gin"),
+        Index("ix_chunks_content_tsv_gin", "content_tsv", postgresql_using="gin"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(
@@ -56,6 +62,12 @@ class Chunk(Base):
     )
     chunk_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Generated column (see the 0002 migration): Postgres recomputes it from
+    content_tsv: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(f"to_tsvector('{FULLTEXT_SEARCH_CONFIG}', content)", persisted=True),
+    )
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(EMBEDDING_DIMENSION), nullable=True
     )

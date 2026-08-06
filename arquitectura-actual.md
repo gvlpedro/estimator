@@ -110,7 +110,7 @@ caracteres.
 Preparación del entorno:
 
 ```bash
-docker compose up -d --build postgres ai_service
+docker compose up -d --build postgres ai-service
 make db_upgrade   # alembic upgrade head
 make seed_ia      # idempotente: "Done: 0 ingested, 15 already present, 0 failed."
 ```
