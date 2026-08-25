@@ -1,0 +1,36 @@
+{
+  "description": "RAGAS golden set for the estimation-generation pipeline. Extends the retrieval golden set built for Session 10 (servicio_ia/evals/golden_retrieval.json, queries Q1-Q5 only — Q6/Q7 were adversarial retrieval-only additions, not part of this set). Each entry adds a hand-written ground_truth reference estimate, anchored to the historical budget(s) the retrieval golden set already annotated as relevant for that query, so the reference answer is what a well-grounded pipeline should plausibly produce, not an arbitrary number. `answer` and `contexts` are NOT stored here: they are produced at evaluation time by actually calling the live estimation pipeline (see evals/run_ragas.py), so they reflect whatever the pipeline currently does, not a frozen snapshot.",
+  "rate_card": "~62.50 EUR/hour developer (500 EUR/day), 20% risk buffer applied on top of raw hours per the estimation prompt's own convention (app/prompts/estimation/v3/system.j2).",
+  "queries": [
+    {
+      "id": "Q1",
+      "question": "Mobile banking application with OAuth2 authentication, PSD2 open banking compliance, strong customer authentication and a transaction ledger.",
+      "source_budget_ids": ["BUD-2024-001"],
+      "ground_truth": "A close match to a historical fintech project of this exact shape: OAuth 2.0 authentication backend, PSD2 open banking connectors (account information + payment initiation with strong customer authentication), a transaction ledger service, and push/email notifications. Raw effort ~480 hours: authentication backend ~120h, PSD2/SCA connectors ~160h, transaction ledger ~140h, notifications ~60h. With the standard 20% risk buffer, buffered effort is ~576 hours (~36,000 EUR at 62.50 EUR/h), over roughly 7-8 weeks for a small team. Main risks: PSD2/Berlin Group compliance scope creep, SCA exemption handling complexity, and regulatory sign-off timelines outside the team's control."
+    },
+    {
+      "id": "Q2",
+      "question": "Headless e-commerce storefront with a product catalog, shopping cart checkout and personalized product recommendations.",
+      "source_budget_ids": ["BUD-2024-005"],
+      "ground_truth": "Matches a historical headless-commerce project almost component-for-component: a product catalog API (faceted search, multi-currency pricing), a cart/checkout service with promotions and tax calculation, a personalized recommendations engine, and a server-rendered storefront PWA. Raw effort ~460 hours: catalog API ~150h, cart/checkout ~140h, recommendations ~110h, storefront PWA ~60h. Buffered at 20%, ~552 hours (~34,500 EUR), roughly 7 weeks for a small team. Main risks: checkout payment-provider integration surprises, and the recommendations engine needing a cold-start strategy if there is no historical interaction data yet."
+    },
+    {
+      "id": "Q3",
+      "question": "Telemedicine platform for patient appointment scheduling and video consultations with HL7/FHIR integration and clinical records.",
+      "source_budget_ids": ["BUD-2024-009"],
+      "ground_truth": "Matches a historical telemedicine project directly: a HL7 FHIR R4 integration layer against the hospital EHR, appointment scheduling with clinician availability and waitlists, WebRTC-based video consultation sessions, and a GDPR-aligned consent/audit module. Raw effort ~560 hours: FHIR integration ~190h, appointment scheduling ~150h, video sessions ~160h, consent/audit ~60h. Buffered at 20%, ~672 hours (~42,000 EUR), roughly 8-9 weeks. Main risks: FHIR terminology mapping against a specific hospital EHR is rarely a clean, well-documented integration, and healthcare data handling requires compliance review that can stall the timeline independent of engineering effort."
+    },
+    {
+      "id": "Q4",
+      "question": "Industrial IoT platform ingesting sensor telemetry for predictive maintenance and real-time equipment monitoring in a factory.",
+      "source_budget_ids": ["BUD-2024-013"],
+      "ground_truth": "Matches a historical factory-IoT project: MQTT-based sensor telemetry ingestion into a time-series store, predictive-maintenance / anomaly-detection models estimating remaining useful life, and a read-only SCADA dashboard integration overlaying predictive alerts. Raw effort ~500 hours: telemetry ingestion ~170h, predictive maintenance models ~200h, SCADA dashboard integration ~130h. Buffered at 20%, ~600 hours (~37,500 EUR), roughly 7-8 weeks. Main risks: model quality depends entirely on historical failure-labeled data being available and clean, and SCADA integration on an existing plant system is often constrained by vendor-specific protocols not discovered until integration time."
+    },
+    {
+      "id": "Q5",
+      "question": "Real-time payments gateway with fraud detection, transaction reconciliation and a double-entry ledger.",
+      "source_budget_ids": ["BUD-2024-003"],
+      "ground_truth": "Matches a historical payments-gateway project almost verbatim: a high-throughput payment gateway core with idempotency and retries, real-time fraud detection with a streaming model on the authorization path, daily settlement reconciliation against the acquirer and ledger, and a merchant-facing dashboard. Raw effort ~600 hours: gateway core ~220h, fraud detection ~200h, reconciliation ~120h, merchant dashboard ~60h. Buffered at 20%, ~720 hours (~45,000 EUR), roughly 9 weeks. Main risks: fraud-model false-positive rate needs tuning against real traffic post-launch, and reconciliation exception handling (partial settlements, chargebacks) is routinely underscoped relative to the happy path."
+    }
+  ]
+}

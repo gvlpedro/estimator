@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -42,12 +43,14 @@ from app.schemas.log import (
     ACBCompleted,
     ACBRequestReceived,
     CacheHitKind,
+    CitationVerificationCompleted,
     EstimationCacheHit,
     EstimationGenerated,
     TurnObserved,
 )
 from app.services.boss import Boss
 from app.services.cache import EstimationCache
+from app.services.citation_verification import verify_citations
 from app.services.critic import Critic
 from app.services.llm_wrapper import LLMWrapper
 from app.services.metadata_extractor import extract_project_metadata
@@ -197,6 +200,30 @@ class EstimationService:
             model=completion.model,
             provider=completion.provider,
             latency_ms=completion.latency_ms,
+        ).emit()
+
+        # request_id: a fresh id minted per LLM call, distinct from
+        # session_id. session_id (when it exists) identifies a whole
+        # multi-turn conversation; request_id identifies exactly one
+        # generation call within it. The plain (non-conversational)
+        # `/api/v1/estimate` path has no session at all, so request_id must
+        # exist unconditionally — always minting a fresh one keeps the two
+        # entry points on identical footing instead of branching this
+        # pipeline's behaviour on which router called it.
+        request_id = uuid.uuid4().hex
+        retrieved_chunk_ids = (
+            {str(item["chunk_id"]) for item in retrieved_context} if retrieved_context else set()
+        )
+        citation_report = verify_citations(result, retrieved_chunk_ids)
+        CitationVerificationCompleted(
+            request_id=request_id,
+            grounded_count=len(citation_report.grounded),
+            dangling_count=len(citation_report.dangling),
+            unsupported_count=len(citation_report.unsupported),
+            dangling_details=[
+                {"phase_name": p.phase_name, "dangling_chunk_ids": p.dangling_chunk_ids}
+                for p in citation_report.dangling
+            ],
         ).emit()
 
         result = enforce_scope_response(result)

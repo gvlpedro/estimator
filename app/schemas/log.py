@@ -315,6 +315,29 @@ class EstimationGenerated(LogEvent):
     latency_ms: int = Field(ge=0)
 
 
+class CitationVerificationCompleted(LogEvent):
+    """Post-generation citation-grounding check (Session 10).
+
+    Level is deliberately kept at the base ``info`` — mirroring
+    ``ModerationFlagged`` / ``PromptInjectionDetected`` above, this codebase's
+    convention for "detection" events is to stay at ``info`` and make the
+    finding visible through rich, queryable structured fields rather than by
+    escalating the log level. A dangling citation is a quality signal to
+    audit, not an application malfunction (``warning``/``error`` here are
+    reserved for infra-type failures, e.g. ``ModerationCallFailed``,
+    ``CacheGetFailed``). ``dangling_details`` flattens each dangling phase's
+    offending chunk ids so a dashboard/alert can filter on
+    ``dangling_count > 0`` without joining against the full report.
+    """
+
+    event: ClassVar[str] = "citation_verification_completed"
+    request_id: str
+    grounded_count: int = Field(ge=0)
+    dangling_count: int = Field(ge=0)
+    unsupported_count: int = Field(ge=0)
+    dangling_details: list[dict] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Per-turn observability aggregate
 # ---------------------------------------------------------------------------

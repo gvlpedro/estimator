@@ -66,6 +66,43 @@ OUT_OF_SCOPE_PREFIX = "Out of scope:"
 LOW_CONFIDENCE_THRESHOLD = 30
 
 
+class SourceReference(BaseModel):
+    """One piece of retrieved evidence backing a phase's numbers.
+
+    ``chunk_id``/``document_id`` are ``str`` here even though ``SearchResult``
+    (``app/schemas/search.py``) carries them as ``int`` — citations are string
+    identifiers by convention in this schema, matching how they are echoed
+    back verbatim by the LLM (Pydantic str-coerces a numeral fine). Cast at
+    the call site if a ``SourceReference`` is ever built programmatically
+    from retrieved-context data instead of emitted by the model.
+    """
+
+    chunk_id: str = Field(
+        min_length=1,
+        description=(
+            "The exact chunk_id shown in the retrieved historical-budget "
+            "context for this call. Never invent one — only copy an id that "
+            "was literally present in the retrieved context you were given."
+        ),
+    )
+    document_id: str = Field(
+        min_length=1,
+        description=(
+            "The document_id of the retrieved chunk this source comes from, "
+            "copied verbatim from the retrieved context."
+        ),
+    )
+    evidence: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "A verbatim span or figure copied from the cited chunk's "
+            "content — not a paraphrase, not a summary. This is the exact "
+            "text that justifies the phase's scope, hours, or cost."
+        ),
+    )
+
+
 class Phase(BaseModel):
     """One phase in the breakdown of an estimation."""
 
@@ -73,6 +110,47 @@ class Phase(BaseModel):
     duration_weeks: int = Field(ge=1, le=52)
     cost_eur: int = Field(ge=0, le=1_000_000)
     summary: str = Field(min_length=10, max_length=600)
+    grounded: bool = Field(
+        default=False,
+        description=(
+            "True only when this phase's scope, hours or cost are backed by "
+            "at least one chunk from the retrieved historical-budget "
+            "context — not the model's general judgment. False is not a "
+            "failure: it means no retrieved chunk covers this phase, so the "
+            "number comes from general judgment. Guessing confidently "
+            "without evidence and marking it grounded is the failure mode "
+            "this field exists to prevent."
+        ),
+    )
+    sources: list[SourceReference] = Field(
+        default_factory=list,
+        description=(
+            "Retrieved chunks that support this phase. Cite retrieved "
+            "chunks only — never invent a chunk_id. Must be empty when "
+            "grounded=False, and must contain at least one entry when "
+            "grounded=True."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def grounded_must_match_sources(self) -> "Phase":
+        if self.grounded and not self.sources:
+            raise ValueError(
+                "Phase.grounded=True requires at least one entry in "
+                "Phase.sources (cite the retrieved chunk_id(s) that support "
+                "this phase); got an empty sources list instead. Either add "
+                "a SourceReference or set grounded=False if no retrieved "
+                "chunk actually covers this phase."
+            )
+        if not self.grounded and self.sources:
+            raise ValueError(
+                "Phase.grounded=False requires Phase.sources to be empty "
+                "(an ungrounded phase cannot cite sources); got "
+                f"{len(self.sources)} source(s) instead. Either remove the "
+                "sources or set grounded=True if this phase is actually "
+                "backed by retrieved evidence."
+            )
+        return self
 
 
 class EstimationResult(BaseModel):
