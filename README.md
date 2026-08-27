@@ -487,3 +487,66 @@ Para aislar el efecto de cada palanca, `golden_eval.py` corre las 7 consultas ×
 
 Por eso lo dejamos como lo construimos — un flag por request (`rerank`), no una decisión fija de arquitectura — apagado por defecto, disponible para quien esté dispuesto a pagar ~400 ms cuando el caso lo justifique (una consulta ambigua donde de verdad conviene forzar el mejor ranking posible), y candidato a revisarse si cambia cualquiera de las tres condiciones que hoy neutralizan su beneficio medible: un corpus bastante más grande (donde `RECALL_K=50` deje de cubrir casi todo el catálogo, como ya pasaba con solo 58-63 chunks), un golden set donde algún método realmente **falle** en encontrar lo relevante en vez de solo discrepar en el relleno, o una métrica sensible al orden (MRR, nDCG) en vez de precisión@k.
 
+# Sesión 11 — RAGAS: baseline de calidad de generación
+
+Golden set de 5 consultas (`evals/ragas_golden_set.json`, evaluado con `evals/run_ragas.py` contra el pipeline real (`prompt_version="v3"`, el prompt con citación por línea) y el corpus real de 16 presupuestos. Resultados de un run completo, sin simular: `evals/ragas_results.md` / `evals/ragas_results.json`.
+
+**Objetivo de todo esto.** La Parte 1 de esta sesión añadió citación por línea: cada fase de una estimación debe decir de dónde sacó sus números (`grounded=True` + fuente citada) o admitir honestamente que no tiene soporte (`grounded=False`). Pero que el *schema* obligue a citar cuando el modelo dice "estoy fundamentado" no dice nada sobre si el modelo *elige* fundamentarse cuando podría, ni sobre si el texto que genera realmente se sostiene en lo que se le dio como contexto. Esta sección mide eso — no la estructura, el contenido — con un juez externo (RAGAS) que no sabe nada de nuestro campo `grounded`, para ver si coincide con lo que el modelo dice de sí mismo.
+
+**RAGAS.** Un framework de evaluación para pipelines RAG que usa un LLM como juez (aquí, `gpt-4o-mini`) para puntuar automáticamente la calidad de una respuesta generada, sin necesidad de que un humano revise cada caso a mano. Recibe cuatro cosas por consulta — la pregunta, la respuesta generada, el contexto recuperado y una respuesta de referencia (`ground_truth`) — y devuelve una puntuación de 0 a 1 por cada métrica. Es externo al pipeline: no ve el código, no sabe que existe un campo `grounded`, solo lee el texto final.
+
+
+| Query | faithfulness | answer_relevancy | context_precision | context_recall |
+|---|---|---|---|---|
+| Q1 | 0.48 | 0.51 | 1.00 | 0.57 |
+| Q2 | 0.24 | 0.47 | 1.00 | 0.71 |
+| Q3 | 0.06 | 0.55 | 1.00 | 0.62 |
+| Q4 | 0.05 | 0.68 | 1.00 | 0.50 |
+| Q5 | 0.00 | 0.58 | 1.00 | 0.50 |
+| **Media** | **0.17** | **0.56** | **1.00** | **0.58** |
+
+## El desajuste
+
+`faithfulness` baja con citación gruesa, y de forma muy clara. `context_precision=1.00` en las 5 consultas confirma que el retrieval trae contexto casi perfecto siempre — el problema no es qué se recupera, es qué hace el LLM con ello. Mirando las respuestas reales: el modelo rellena sistemáticamente fases genéricas de SDLC ("Requirements Gathering", "Design", "Testing and QA", "Deployment and Support", "Documentation and Training") que no citan nada recuperado y quedan marcadas `grounded: false` — diluyen `faithfulness` aunque el contexto disponible fuera excelente.
+
+El caso más extremo es **Q5 (`faithfulness=0.00`)**: el retrieval trajo casi una copia exacta del presupuesto histórico comparable (payment gateway core, fraud detection, reconciliation, dashboard — los mismos componentes, casi las mismas horas), pero el modelo ignoró todo eso y generó 6 fases genéricas, ninguna marcada como fundamentada.
+
+El validador del schema (Parte 1) garantiza que `grounded=True` nunca aparece sin fuente real — pero no garantiza que el modelo *elija* fundamentar cuando podría. Ahí es exactamente donde `verify_citations` y este baseline demuestran su valor: detectan el síntoma, no lo curan solos.
+
+                 RETRIEVAL
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+   Precision = 1.00       Recall = 0.58
+          │                     │
+          └──────────┬──────────┘
+                     ↓
+             Contexto relevante
+                     │
+                     ↓
+                    LLM
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+ Relevancy = 0.56       Faithfulness = 0.17
+          │                     │
+          ↓                     ↓
+   Responde a lo         No utiliza/fundamenta
+      preguntado          suficientemente bien
+   
+
+| Métrica                       | Qué mide                                                                            |                                                         Valor esperado | Si está bajo, ¿qué significa?                                                                      | Acción recomendada                                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------: | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **`context_precision`**       | Qué proporción del contexto recuperado es relevante para la consulta                |                                                             **≥ 0.90** | El retrieval trae ruido, documentos/chunks irrelevantes o demasiado contexto                       | Mejorar embeddings, filtros, metadata, `top-k`, reranking y estrategia de chunking                                   |
+| **`context_recall`**          | Cuánta de la información necesaria para responder está presente en el contexto      |                                                             **≥ 0.80** | Falta información relevante en el contexto recuperado                                              | Aumentar/mejorar `top-k`, búsqueda híbrida, reranking, chunking, consultas múltiples o recuperación iterativa        |
+| **`faithfulness`**            | Cuánto de lo que afirma el LLM está realmente respaldado por el contexto recuperado |                                                             **≥ 0.85** | El LLM inventa, extrapola demasiado o añade conocimiento genérico no presente en las fuentes       | Cambiar prompt, exigir evidencia por afirmación, limitar inferencias, mejorar citación y añadir validación posterior |
+| **`answer_relevancy`**        | Hasta qué punto la respuesta responde directamente a la pregunta                    |                                                             **≥ 0.80** | La respuesta se desvía, contiene información innecesaria o no responde exactamente a lo solicitado | Mejorar prompt, definir mejor el objetivo de la respuesta y limitar contenido no solicitado                          |
+| **`grounded`** *(propio)*     | Si la fase declara tener una fuente válida                                          |                                     **≈ 100% cuando existe evidencia** | El modelo no cita evidencia aunque el contexto la contiene                                         | Cambiar instrucciones para priorizar evidencia; hacer obligatorio citar cuando exista soporte                        |
+| **`grounded + faithfulness`** | Si una fase tiene fuente **y** lo que afirma está realmente respaldado por ella     |                                                             **≥ 0.85** | Se citan fuentes pero la prosa contiene afirmaciones que las fuentes no justifican                 | Validación semántica de citas; no basta con `verify_citations` estructural                                           |
+| **Calidad global RAG**        | Combinación de recuperación + generación                                            | **Precision ≥ .90, Recall ≥ .80, Faithfulness ≥ .85, Relevancy ≥ .80** | Alguna parte del pipeline está limitando la respuesta final                                        | Diagnosticar primero si el problema está en retrieval o generación antes de cambiar arquitectura                     |
+
+Técnicas avanzadas para mejorar la calidad de RAG:
+Query Expansion= Genera variantes de la consulta
+Corrective RAG: Si los documentos recuperados tienen similitud baja debería tomar acción, o decir que lo desconoce o recabar más información.
+Self RAG: El LLM puede generar su propia consulta de seguimiento para recuperar más contexto y mejorar la respuesta.
+Agentic RAG: El LLM puede actuar como un agente que decide qué documentos recuperar, cómo procesarlos y cómo generar la respuesta final
