@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import fakeredis
 import pytest
+from pydantic import BaseModel
 
 from app.services.cache import EstimationCache
 from app.services.llm_wrapper import LLMWrapper, _estimate_cost
@@ -124,6 +125,67 @@ def test_thinking_budget_pads_max_tokens_when_anthropic_override(wrapper: LLMWra
     kwargs = direct.call_args.kwargs
     assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
     assert kwargs["max_tokens"] == 4096 + 1024
+
+
+def test_complete_structured_surfaces_tokens_and_cost(wrapper: LLMWrapper) -> None:
+    """The structured path is what Actor + Critic of the ACB loop run through.
+    It must report tokens and cost, not just latency."""
+
+    class _Reply(BaseModel):
+        answer: str
+
+    parsed = _Reply(answer="42")
+    raw = _fake_completion(model="gpt-4o-mini", input_tokens=1_000_000, output_tokens=1_000_000)
+
+    with patch.object(
+        wrapper._instructor.chat.completions,
+        "create_with_completion",
+        return_value=(parsed, raw),
+    ) as mocked:
+        completion = wrapper.complete_structured(
+            system_prompt="sys",
+            user_message="usr",
+            response_model=_Reply,
+        )
+
+    assert mocked.call_count == 1
+    assert completion.result.answer == "42"
+    assert completion.model == "gpt-4o-mini"
+    assert completion.provider == "openai"
+    assert completion.input_tokens == 1_000_000
+    assert completion.output_tokens == 1_000_000
+    # 1M * 0.15 + 1M * 0.60 = 0.75 USD per the gpt-4o-mini entry in MODEL_COSTS.
+    assert completion.cost_usd == pytest.approx(0.75)
+    assert completion.latency_ms >= 0
+
+
+def test_complete_structured_handles_missing_usage_block(wrapper: LLMWrapper) -> None:
+    """Some provider/transport combos drop ``usage`` on the floor. We coerce
+    to zero rather than blow up — a zero cost is more honest than fabricated."""
+
+    class _Reply(BaseModel):
+        answer: str
+
+    raw_no_usage = SimpleNamespace(
+        model="gpt-4o-mini",
+        choices=[SimpleNamespace(message=SimpleNamespace(content="x"), finish_reason="stop")],
+        usage=None,
+    )
+
+    with patch.object(
+        wrapper._instructor.chat.completions,
+        "create_with_completion",
+        return_value=(_Reply(answer="x"), raw_no_usage),
+    ):
+        completion = wrapper.complete_structured(
+            system_prompt="sys",
+            user_message="usr",
+            response_model=_Reply,
+        )
+
+    assert completion.input_tokens == 0
+    assert completion.output_tokens == 0
+    assert completion.cost_usd == 0.0
 
 
 def test_complete_stream_yields_chunks_and_caches(wrapper: LLMWrapper) -> None:

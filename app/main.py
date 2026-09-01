@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.routers import estimations
+from app.routers import estimations, search, sessions
+from app.schemas.log import ApplicationShutdown, ApplicationStarted
 
 
 def configure_logging() -> None:
@@ -40,11 +41,10 @@ def configure_logging() -> None:
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
     configure_logging()
-    log = structlog.get_logger()
     settings = get_settings()
-    log.info("application_started", environment=settings.APP_ENV)
+    ApplicationStarted(environment=settings.APP_ENV).emit()
     yield
-    log.info("application_shutdown")
+    ApplicationShutdown().emit()
 
 
 app = FastAPI(
@@ -65,6 +65,8 @@ app.add_middleware(
 )
 
 app.include_router(estimations.router)
+app.include_router(search.router)
+app.include_router(sessions.router)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():

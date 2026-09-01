@@ -1,56 +1,119 @@
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Literal
 
-import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
-from app.dependencies import get_llm_wrapper
+from app.dependencies import get_estimation_service, get_llm_wrapper
+from app.guardrails import InputGuardrailViolation
 from app.schemas.estimation import (
+    ACBResponse,
     EstimationRequest,
     EstimationResponse,
     StreamEstimationRequest,
 )
-from app.services.evaluation import evaluate_estimation_structure
-from app.services.llm_service import (
-    GenerationOptions,
-    LLMServiceError,
-    build_system_prompt,
-    generate_estimation,
+from app.schemas.log import (
+    EstimateStreamFailed,
+    EstimationBlockedByInputGuardrail,
+    EstimationEndpointError,
+    EstimationRequestReceived,
 )
+from app.services.estimation import EstimationService
+from app.services.llm_service import build_system_prompt
 from app.services.llm_wrapper import LLMWrapper
-
-log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1", tags=["estimations"])
 
+PromptVersion = Literal["v1", "v2"]
+
 
 @router.post("/estimate", response_model=EstimationResponse)
-async def create_estimation(request: EstimationRequest) -> EstimationResponse:
-    """Receive a meeting transcription and return a software project estimation."""
-    opts = GenerationOptions(
-        preprocessing=request.preprocessing,
-        example_format=request.example_format,
-        num_examples=request.num_examples,
-        use_examples=request.use_examples,
-        model=request.model,
-        max_tokens=request.max_tokens,
-        thinking_budget=request.thinking_budget,
-    )
+def create_estimation(
+    request: EstimationRequest,
+    prompt_version: PromptVersion = Query(
+        default="v1",
+        description="Which prompt family under app/prompts/estimation/ to use.",
+    ),
+    service: EstimationService = Depends(get_estimation_service),
+) -> EstimationResponse:
+    """Run the full structured-estimation pipeline and return the validated result.
+
+    - ``InputGuardrailViolation`` → 400 ``{reason, message}`` so the client can
+      render an actionable error (prompt injection, PII, moderation).
+    - Anything else from the pipeline → 502 (includes ``InstructorRetryException``
+      when the model can't satisfy validators within ``max_retries``).
+    """
+    EstimationRequestReceived(
+        project_type=request.project_type.value,
+        detail_level=request.detail_level.value,
+        output_format=request.output_format.value,
+        description_chars=len(request.description),
+        prompt_version=prompt_version,
+    ).emit()
 
     try:
-        result = generate_estimation(request.transcription, opts)
-    except LLMServiceError as exc:
-        log.error("estimation_endpoint_error", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        return service.estimate(request, prompt_version=prompt_version)
+    except InputGuardrailViolation as exc:
+        EstimationBlockedByInputGuardrail(
+            reason=exc.reason,
+            message=exc.message,
+        ).emit()
+        raise HTTPException(
+            status_code=400,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        EstimationEndpointError(
+            error=str(exc),
+            error_type=type(exc).__name__,
+        ).emit()
+        raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
 
-    validation = (
-        evaluate_estimation_structure(result["estimation"], result["finish_reason"])
-        if request.evaluate
-        else None
-    )
 
-    return EstimationResponse(**result, validation=validation)
+@router.post("/estimate/acb", response_model=ACBResponse)
+def create_estimation_acb(
+    request: EstimationRequest,
+    prompt_version: PromptVersion = Query(
+        default="v1",
+        description="Which actor prompt family under app/prompts/estimation/ to use.",
+    ),
+    service: EstimationService = Depends(get_estimation_service),
+) -> ACBResponse:
+    """Run the structured-estimation pipeline through the Actor-Critic-Boss
+    orchestrator.
+
+    Reuses the same actor prompt as ``/estimate`` but adds an independent
+    Critic pass on every draft. The Boss either accepts the draft, asks the
+    actor to retry with the Critic's feedback, or synthesises a fallback
+    when the loop runs out of iterations. The ``acb`` field carries the full
+    audit trail for the caller to surface in a debug panel.
+    """
+    EstimationRequestReceived(
+        project_type=request.project_type.value,
+        detail_level=request.detail_level.value,
+        output_format=request.output_format.value,
+        description_chars=len(request.description),
+        prompt_version=f"acb-{prompt_version}",
+    ).emit()
+
+    try:
+        return service.estimate_with_acb(request, prompt_version=prompt_version)
+    except InputGuardrailViolation as exc:
+        EstimationBlockedByInputGuardrail(
+            reason=exc.reason,
+            message=exc.message,
+        ).emit()
+        raise HTTPException(
+            status_code=400,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        EstimationEndpointError(
+            error=str(exc),
+            error_type=type(exc).__name__,
+        ).emit()
+        raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
 
 
 @router.post("/estimate/stream")
@@ -60,10 +123,8 @@ async def create_estimation_stream(
 ) -> EventSourceResponse:
     """Stream a software estimation token by token via Server-Sent Events.
 
-    The streaming path is intentionally simpler than POST /estimate: it skips
-    two-phase preprocessing and structural validation, since both fight the UX
-    benefit of streaming (intermediate phase 1 tokens would leak; validation
-    only makes sense over the complete text).
+    The streaming path keeps the older transcription-based contract — it is
+    used by the legacy demo UI and is not affected by the v1 prompt refactor.
     """
     system_prompt = build_system_prompt()
 
@@ -82,7 +143,7 @@ async def create_estimation_stream(
             except StopIteration:
                 return None
             except Exception as exc:  # noqa: BLE001 — surface as SSE error event
-                log.error("estimate_stream_failed", error=str(exc), error_type=type(exc).__name__)
+                EstimateStreamFailed(error=str(exc), error_type=type(exc).__name__).emit()
                 raise
 
         try:
