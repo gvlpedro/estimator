@@ -550,3 +550,16 @@ Query Expansion= Genera variantes de la consulta
 Corrective RAG: Si los documentos recuperados tienen similitud baja debería tomar acción, o decir que lo desconoce o recabar más información.
 Self RAG: El LLM puede generar su propia consulta de seguimiento para recuperar más contexto y mejorar la respuesta.
 Agentic RAG: El LLM puede actuar como un agente que decide qué documentos recuperar, cómo procesarlos y cómo generar la respuesta final
+
+# Agent session 12 — Agente de estimación con bucle manual sobre la Responses API
+
+Agente dentro del servicio IA (`servicio_ia/app/agents/`) que recibe la transcripción de una reunión, la descompone en componentes y devuelve una estimación estructurada junto a su traza de razonamiento. Documentación completa, comando y path de la traza en el [README de `servicio_ia`](servicio_ia/README.md#sesión-12--agente-de-estimación-bucle-manual-sobre-la-responses-api). Así se ha construido, paso a paso:
+
+- Las dos tools (`search_budgets`, `calculate_estimate`) se definen como una lista de schemas planos de la Responses API (`{"type": "function", "name": ..., "description": ..., "parameters": {...}}`, no el formato anidado de Chat Completions), con `strict: true` y nombres/descripciones/parámetros en inglés — viven en `app/agents/tools.py`.
+- El system prompt (`SYSTEM_PROMPT` en `app/agents/loop.py`) le da al agente un rol de consultor de estimación y un método explícito: identificar los componentes de la transcripción, buscar presupuestos históricos por cada uno por separado, reintentar con una query más amplia si una búsqueda no trae nada útil, y llamar a `calculate_estimate` una única vez con todos los componentes juntos.
+- El bucle arranca con una llamada a `client.responses.create(model=..., instructions=SYSTEM_PROMPT, input=transcript, tools=TOOLS, reasoning={"effort": "medium", ...})`.
+- El bucle se conduce a mano, sin delegar en el tool-calling agéntico interno de la API: se recorre `response.output` buscando items `function_call`, se ejecuta la tool con sus `arguments` (parseados desde JSON), se construye un item `function_call_output` con el mismo `call_id`, y se vuelve a llamar a la API encadenando con `previous_response_id`. Esto se repite mientras el modelo siga pidiendo tools; el bucle termina solo cuando `response.output` ya no trae ningún `function_call`, con un `max_iterations` como salvaguarda.
+- En cada iteración se guarda un paso de traza con el razonamiento del modelo (el `reasoning summary` de la API cuando lo emite; si el modelo va directo a una tool sin resumen — algo que ocurre incluso a effort `medium`, comprobado contra la API real — se usa un fallback que describe la llamada a partir de sus propios argumentos, para que esa columna nunca quede vacía), la tool invocada con sus argumentos, y la observación con el resultado. Todo se acumula en una lista ordenada (`TraceStep` en `app/agents/schemas.py`).
+- Al terminar, el agente devuelve la estimación estructurada final (desglose por componente + total, de la última llamada a `calculate_estimate`) junto con la traza completa, formateada como `STEP N / reasoning / action / observation`.
+
+**Traza de ejecución para `sample_transcript_complex.txt`** (el entregable): [`servicio_ia/s12_agent_resources/example_trace_complex.txt`](servicio_ia/s12_agent_resources/example_trace_complex.txt).

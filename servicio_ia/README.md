@@ -41,6 +41,23 @@ servicio_ia/app/
 
 Los routers no construyen SQL: la detección de duplicados, la persistencia transaccional y el ranking vectorial están en `app/storage/repository.py`.
 
+## Sesión 12 — Agente de estimación 
+
+```bash
+
+uv run --env-file .env python servicio_ia/scripts/run_agent_s12.py \
+    servicio_ia/s12_agent_resources/sample_transcript_simple.txt \
+    --model gpt-5-mini --effort minimal --stub
+
+# Entregable: transcripción compleja, gpt-5/medium
+uv run --env-file .env python servicio_ia/scripts/run_agent_s12.py \
+    servicio_ia/s12_agent_resources/sample_transcript_complex.txt \
+    --model gpt-5 --effort medium --stub \
+    --out servicio_ia/s12_agent_resources/example_trace_complex.txt
+```
+
+**Traza de ejecución para `sample_transcript_complex.txt`** (el entregable): [`servicio_ia/s12_agent_resources/example_trace_complex.txt`](s12_agent_resources/example_trace_complex.txt).
+
 ## Base de datos: migración y seed
 
 Con el postgres del compose levantado (`docker compose up -d postgres`):
