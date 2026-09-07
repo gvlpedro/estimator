@@ -3,11 +3,16 @@
 import os
 from contextlib import asynccontextmanager
 
+import logfire
 import structlog
 from fastapi import FastAPI
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.embedding_pipeline.router import router as embeddings_router
 from app.embedding_pipeline.router import search_router
+from app.lgraph.build import build_graph
+from app.lgraph.checkpointer import get_checkpointer_dsn
+from app.lgraph.router import router as estimate_router
 from app.ingest.router import router as ingest_router
 
 
@@ -36,10 +41,27 @@ def configure_logging() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown lifecycle."""
+    """Application startup and shutdown lifecycle.
+
+    The checkpointer owns the Postgres connection pool for the graph's
+    lifetime: opened here (with its tables created on first run via
+    ``setup()``), torn down on shutdown alongside everything else.
+    """
     configure_logging()
+    # "if-token-present": no LOGFIRE_TOKEN -> local-only, no crash on startup;
+    # set LOGFIRE_TOKEN in .env to actually ship spans to a Logfire project.
+    logfire.configure(service_name="servicio_ia", send_to_logfire="if-token-present")
+    logfire.instrument_fastapi(app)
+    logfire.instrument_asyncpg()
+    logfire.instrument_httpx()  # captures the OpenAI Responses API calls (SDK uses httpx)
+
     structlog.get_logger().info("application_started", service="servicio_ia")
-    yield
+
+    async with AsyncPostgresSaver.from_conn_string(get_checkpointer_dsn()) as checkpointer:
+        await checkpointer.setup()
+        app.state.graph = build_graph(checkpointer)
+        yield
+
     structlog.get_logger().info("application_shutdown", service="servicio_ia")
 
 
@@ -55,6 +77,7 @@ app = FastAPI(
 app.include_router(ingest_router, prefix="/embeddings")
 app.include_router(embeddings_router, prefix="/embeddings")
 app.include_router(search_router)
+app.include_router(estimate_router)
 
 
 @app.get("/health")
