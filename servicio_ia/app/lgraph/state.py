@@ -1,8 +1,13 @@
-"""Typed state for the estimation graph.
+"""Typed state for the multi-agent estimation graph (extends the S13 state).
 
-``budget_matches`` and ``errors`` use an ``operator.add`` reducer because
-they grow incrementally as the graph runs (one component's search results,
-one node's failure) rather than being replaced wholesale by each node.
+``budget_matches``, ``errors`` and ``agent_contributions`` use an
+``operator.add`` reducer because they grow incrementally as the graph runs
+(one component's search results, one node's failure, one agent's turn)
+rather than being replaced wholesale by each node. ``agent_contributions``
+doubles as the supervisor's own memory of who has already run: it decides
+the next agent by checking which names are in that list, not by inspecting
+business-data shape (an empty ``budget_matches`` is a valid outcome of
+``budget_searcher`` having run, not a sign it hasn't).
 """
 
 from __future__ import annotations
@@ -22,6 +27,11 @@ class BudgetMatch(TypedDict):
     amount: float
 
 
+class AgentContribution(TypedDict):
+    agent: str
+    summary: str
+
+
 class EstimationState(TypedDict):
     transcript: str
     estimation_id: str
@@ -30,5 +40,11 @@ class EstimationState(TypedDict):
     # Accumulator field: grows as each component is searched.
     budget_matches: Annotated[list[BudgetMatch], operator.add]
     estimate: Optional[dict]
-    status: Optional[str]  # "validated" | "needs_review"
+    validation: Optional[dict]
+    confidence: Optional[float]
+    status: Optional[str]  # "validated" | "needs_review" | "rejected"
     errors: Annotated[list[str], operator.add]
+    # Accumulator field: one entry per agent turn, in run order.
+    agent_contributions: Annotated[list[AgentContribution], operator.add]
+    # Set by human_review_gate only when a human actually reviewed the case.
+    human_decision: Optional[dict]

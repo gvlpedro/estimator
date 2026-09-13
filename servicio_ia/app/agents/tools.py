@@ -191,6 +191,73 @@ def calculate_estimate(args: dict[str, Any]) -> dict[str, Any]:
     return {"components": breakdown, "total_hours": total, "summary": summary}
 
 
+def validate_estimate(args: dict[str, Any]) -> dict[str, Any]:
+    """Cross-check an estimate for internal coherence and historical plausibility.
+
+    Pure Python, no LLM call: ``calculate_estimate`` already guarantees the
+    arithmetic (components sum to the total), so this only judges whether the
+    estimate should be *trusted* -- via a single ``confidence`` score in
+    [0, 1] that folds together the three human-review triggers so a caller
+    only needs one threshold check:
+
+    - a component with no historical reference at all (``unbudgeted``);
+    - the transcript having no precedent whatsoever in the historical corpus
+      (``budget_matches`` came back empty for every component);
+    - the total falling outside the historical envelope implied by the
+      matched reference amounts.
+    """
+    estimate = args.get("estimate") or {}
+    budget_matches: list[dict[str, Any]] = args.get("budget_matches", [])
+
+    components: list[dict[str, Any]] = estimate.get("components", [])
+    total_hours = estimate.get("total_hours", 0.0)
+
+    unbudgeted = [c["name"] for c in components if c.get("unbudgeted")]
+    no_precedent = len(budget_matches) == 0
+    budgeted_ratio = 1.0 - (len(unbudgeted) / len(components)) if components else 0.0
+
+    amounts = [m["amount"] for m in budget_matches]
+    if amounts and total_hours:
+        # A component's contingency-adjusted hours are within ~1.5x its median
+        # reference (see calculate_estimate); summed across N components, the
+        # plausible envelope scales the same way. Crude on purpose -- this is
+        # a plausibility check, not a second cost model.
+        historical_low = min(amounts)
+        historical_high = max(amounts) * max(len(components), 1) * 1.5
+        in_historical_range = historical_low <= total_hours <= historical_high
+    else:
+        in_historical_range = False
+
+    issues: list[str] = []
+    if unbudgeted:
+        issues.append(f"unbudgeted components: {', '.join(unbudgeted)}")
+    if no_precedent:
+        issues.append("transcript has no precedent in the historical budgets corpus")
+    elif not in_historical_range:
+        issues.append("total_hours falls outside the historical envelope")
+
+    if no_precedent:
+        confidence = 0.0
+    elif not in_historical_range:
+        confidence = min(budgeted_ratio, 0.5)
+    else:
+        confidence = budgeted_ratio
+    confidence = round(confidence, 2)
+
+    summary = f"confidence={confidence}"
+    if issues:
+        summary += f"; issues: {'; '.join(issues)}"
+
+    return {
+        "confidence": confidence,
+        "in_historical_range": in_historical_range,
+        "no_precedent": no_precedent,
+        "unbudgeted_components": unbudgeted,
+        "issues": issues,
+        "summary": summary,
+    }
+
+
 async def search_budgets(
     args: dict[str, Any],
     *,
