@@ -19,15 +19,54 @@ Design notes
 from __future__ import annotations
 
 import time
-from typing import Any, Iterator
+from dataclasses import dataclass
+from typing import Any, Generic, Iterator, TypeVar
 
+import instructor
 import litellm
-import structlog
 from litellm import Router
+from pydantic import BaseModel
 
+from app.schemas.log import (
+    LlmCallCompleted,
+    LlmCallFailed,
+    LlmCallStarted,
+    LlmStreamCompleted,
+    LlmStreamFailed,
+    LlmStreamStarted,
+    LlmStructuredCallCompleted,
+    LlmStructuredCallFailed,
+    LlmStructuredCallStarted,
+    StreamCacheHit,
+    ThinkingBudgetIgnoredForProvider,
+)
 from app.services.cache import EstimationCache
 
-log = structlog.get_logger()
+T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class StructuredCompletion(Generic[T]):
+    """Return value of :meth:`LLMWrapper.complete_structured`.
+
+    ``result`` is the validated business payload (an instance of the
+    ``response_model`` the caller passed in). The remaining fields are
+    operational metadata about the call — useful for logging, metrics and
+    dashboards, but not for the end user.
+
+    ``input_tokens`` / ``output_tokens`` / ``cost_usd`` come from the raw
+    completion exposed by Instructor's ``create_with_completion`` helper.
+    Defaults are zero so the test stubs that build this directly don't have
+    to track every observability field; in real calls all three are filled.
+    """
+
+    result: T
+    model: str
+    provider: str
+    latency_ms: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 # Cost per 1M tokens (USD). Update as pricing changes.
@@ -105,6 +144,10 @@ class LLMWrapper:
             num_retries=num_retries,
         )
 
+        # Instructor wraps ``litellm.completion`` so any underlying provider
+        # accepts ``response_model=`` and re-prompts on validator errors.
+        self._instructor = instructor.from_litellm(litellm.completion)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -144,29 +187,26 @@ class LLMWrapper:
             model_override=model_override,
         )
 
-        log.info(
-            "llm_call_started",
+        LlmCallStarted(
             mode="blocking",
             model=model_override or self.primary_model,
             has_thinking=thinking_budget is not None,
-        )
+        ).emit()
         t0 = time.perf_counter()
         try:
             response = self._dispatch(model_override=model_override, **kwargs)
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            log.error(
-                "llm_call_failed",
+            LlmCallFailed(
                 error_type=type(exc).__name__,
                 error=str(exc),
                 latency_ms=latency_ms,
-            )
+            ).emit()
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         result = self._normalise_response(response, latency_ms=latency_ms)
-        log.info(
-            "llm_call_completed",
+        LlmCallCompleted(
             model=result["model"],
             provider=result["provider"],
             input_tokens=result["usage"]["input_tokens"],
@@ -174,9 +214,88 @@ class LLMWrapper:
             cost_usd=result["cost_usd"],
             latency_ms=latency_ms,
             finish_reason=result["finish_reason"],
-        )
+        ).emit()
         self.cache.set(cache_key, result)
         return {**result, "cache_hit": False}
+
+    def complete_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        response_model: type[T],
+        model_override: str | None = None,
+        max_tokens: int = 4000,
+        max_retries: int = 6,
+    ) -> StructuredCompletion[T]:
+        """Run the LLM with Instructor and return a :class:`StructuredCompletion`.
+
+        Instructor re-prompts the LLM up to ``max_retries`` times when a
+        Pydantic validator raises, feeding the ``ValueError`` message back to
+        the model.
+        """
+        target_model = model_override or self.primary_model
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        api_key = (
+            self.anthropic_api_key
+            if _provider_from_model(target_model) == "anthropic"
+            else self.openai_api_key
+        )
+
+        LlmStructuredCallStarted(
+            model=target_model,
+            response_model=response_model.__name__,
+        ).emit()
+        t0 = time.perf_counter()
+        try:
+            # ``create_with_completion`` returns the parsed model AND the raw
+            # ``ModelResponse`` — needed to read ``usage`` for token counts
+            # and cost. The plain ``create`` we used before threw the raw
+            # response away, hiding tokens/cost on the very path that ACB's
+            # Actor + Critic now run through (2-3 calls per turn).
+            result, raw = self._instructor.chat.completions.create_with_completion(
+                model=target_model,
+                api_key=api_key,
+                timeout=self.timeout,
+                messages=messages,
+                response_model=response_model,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+            )
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            LlmStructuredCallFailed(
+                error_type=type(exc).__name__,
+                error=str(exc),
+                latency_ms=latency_ms,
+            ).emit()
+            raise
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        input_tokens, output_tokens = _usage_from_response(raw)
+        resolved_model = _normalise_model_name(getattr(raw, "model", target_model))
+        cost_usd = _estimate_cost(resolved_model, input_tokens, output_tokens)
+        completion = StructuredCompletion(
+            result=result,
+            model=resolved_model,
+            provider=_provider_from_model(resolved_model),
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+        )
+        LlmStructuredCallCompleted(
+            model=completion.model,
+            provider=completion.provider,
+            latency_ms=completion.latency_ms,
+            input_tokens=completion.input_tokens,
+            output_tokens=completion.output_tokens,
+            cost_usd=completion.cost_usd,
+        ).emit()
+        return completion
 
     def complete_stream(
         self,
@@ -203,7 +322,7 @@ class LLMWrapper:
         )
         cached = self.cache.get(cache_key)
         if cached:
-            log.info("stream_cache_hit", chars=len(cached.get("estimation", "")))
+            StreamCacheHit(chars=len(cached.get("estimation", ""))).emit()
             yield cached.get("estimation", "")
             return
 
@@ -219,10 +338,7 @@ class LLMWrapper:
             stream=True,
         )
 
-        log.info(
-            "llm_stream_started",
-            model=model_override or self.primary_model,
-        )
+        LlmStreamStarted(model=model_override or self.primary_model).emit()
         t0 = time.perf_counter()
         full_text: list[str] = []
         try:
@@ -234,17 +350,16 @@ class LLMWrapper:
                     yield delta
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            log.error(
-                "llm_stream_failed",
+            LlmStreamFailed(
                 error_type=type(exc).__name__,
                 error=str(exc),
                 latency_ms=latency_ms,
-            )
+            ).emit()
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         rendered = "".join(full_text)
-        log.info("llm_stream_completed", latency_ms=latency_ms, chars=len(rendered))
+        LlmStreamCompleted(latency_ms=latency_ms, chars=len(rendered)).emit()
 
         self.cache.set(
             cache_key,
@@ -285,11 +400,10 @@ class LLMWrapper:
                 kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
                 kwargs["max_tokens"] = max(max_tokens, thinking_budget + 1024)
             else:
-                log.warning(
-                    "thinking_budget_ignored_for_provider",
+                ThinkingBudgetIgnoredForProvider(
                     provider=_provider_from_model(target_model),
                     model=target_model,
-                )
+                ).emit()
         return kwargs
 
     def _dispatch(self, *, model_override: str | None, **kwargs: Any) -> Any:
@@ -314,12 +428,8 @@ class LLMWrapper:
     def _normalise_response(response: Any, *, latency_ms: int) -> dict[str, Any]:
         choice = response.choices[0]
         finish_reason = (choice.finish_reason or "stop").lower()
-        usage = response.usage
-        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(usage, "completion_tokens", 0) or 0
-        total_tokens = getattr(usage, "total_tokens", input_tokens + output_tokens) or (
-            input_tokens + output_tokens
-        )
+        input_tokens, output_tokens = _usage_from_response(response)
+        total_tokens = input_tokens + output_tokens
 
         model = _normalise_model_name(response.model)
         return {
@@ -335,6 +445,21 @@ class LLMWrapper:
             "latency_ms": latency_ms,
             "cost_usd": _estimate_cost(model, input_tokens, output_tokens),
         }
+
+
+def _usage_from_response(response: Any) -> tuple[int, int]:
+    """Read (input_tokens, output_tokens) from a LiteLLM ``ModelResponse``.
+
+    Defensive against partial/missing usage blocks: every provider/transport
+    has had at least one regression around usage reporting, so we coerce to
+    zero rather than raise. Callers see zero cost when usage is missing,
+    which is more honest than a fabricated number."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0, 0
+    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    output_tokens = getattr(usage, "completion_tokens", 0) or 0
+    return int(input_tokens), int(output_tokens)
 
 
 def _extract_delta(chunk: Any) -> str:
