@@ -10,13 +10,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import structlog
-
 from app.context.examples import format_examples_for_prompt, select_examples
 from app.dependencies import get_llm_wrapper
 from app.schemas.estimation import ExampleFormat, PreprocessingMode
-
-log = structlog.get_logger()
+from app.schemas.log import ExtractingRequirements, GeneratingEstimation, LlmCallFailed
 
 DEFAULT_MAX_TOKENS = 4000
 EXTRACTION_MAX_TOKENS = 1500
@@ -169,7 +166,7 @@ def extract_requirements(
 
     Returns ``(requirements_text, usage_dict, cost_usd)``.
     """
-    log.info("extracting_requirements", model_override=opts.model)
+    ExtractingRequirements(model_override=opts.model).emit()
 
     result = _invoke_llm(
         system_prompt=EXTRACTION_SYSTEM_PROMPT,
@@ -219,8 +216,7 @@ def generate_estimation(
         inline_cleaning=(opts.preprocessing == "inline_cleaning"),
     )
 
-    log.info(
-        "generating_estimation",
+    GeneratingEstimation(
         model_override=opts.model,
         preprocessing=opts.preprocessing,
         example_format=opts.example_format,
@@ -228,7 +224,7 @@ def generate_estimation(
         use_examples=opts.use_examples,
         max_tokens=opts.max_tokens,
         thinking_budget=opts.thinking_budget,
-    )
+    ).emit()
 
     try:
         result = _invoke_llm(
@@ -239,7 +235,7 @@ def generate_estimation(
             thinking_budget=opts.thinking_budget,
         )
     except Exception as exc:
-        log.error("llm_call_failed", error=str(exc), error_type=type(exc).__name__)
+        LlmCallFailed(error=str(exc), error_type=type(exc).__name__).emit()
         raise LLMServiceError(f"LLM call failed: {exc}") from exc
 
     result["usage"]["preprocessing_input_tokens"] = prep_usage["input"]

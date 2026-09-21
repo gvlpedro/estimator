@@ -6,4 +6,4 @@ setup:
 	cd $(PROJECT_ROOT) && uv sync
 
 run:
-	cd $(PROJECT_ROOT) && uv run streamlit run streamlit_app.py
+	cd $(PROJECT_ROOT) && uv run streamlit run ui/streamlit_app.py

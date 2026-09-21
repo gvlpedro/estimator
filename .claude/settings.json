@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(.env.example)",
+      "Edit(.env.example)"
+    ]
+  }
+}

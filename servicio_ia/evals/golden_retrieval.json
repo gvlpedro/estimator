@@ -1,0 +1,50 @@
+{
+  "description": "Session 10 golden set for retrieval evaluation. Five representative project descriptions to estimate, each hand-annotated with the historical budgets that are genuinely relevant. Graded over the BASE corpus (data/budgets_sample.json, chunk_type='budget_component') so the score is reproducible even if the task corpus is also ingested. A retrieved chunk counts as relevant iff its parent budget_id is in relevant_budget_ids. The distractors are deliberately cross-sector 'similar but irrelevant' budgets (e.g. e-commerce vendor payouts vs. a fintech payments gateway) — the exact failure mode this exercise attacks.",
+  "corpus": "data/budgets_sample.json",
+  "chunk_types": ["budget_component"],
+  "k": 5,
+  "queries": [
+    {
+      "id": "Q1",
+      "query": "Mobile banking application with OAuth2 authentication, PSD2 open banking compliance, strong customer authentication and a transaction ledger.",
+      "relevant_budget_ids": ["BUD-2024-001", "BUD-2024-003"],
+      "note": "Fintech auth + payments. Trap: BUD-2024-006 (e-commerce marketplace vendor payouts) is 'payments-like' but irrelevant for a banking auth project."
+    },
+    {
+      "id": "Q2",
+      "query": "Headless e-commerce storefront with a product catalog, shopping cart checkout and personalized product recommendations.",
+      "relevant_budget_ids": ["BUD-2024-005", "BUD-2024-006", "BUD-2024-007", "BUD-2024-017"],
+      "note": "E-commerce storefront/catalog/checkout. Trap: finance payment budgets (BUD-2024-003) and healthcare scheduling are close in topic words but wrong domain."
+    },
+    {
+      "id": "Q3",
+      "query": "Telemedicine platform for patient appointment scheduling and video consultations with HL7/FHIR integration and clinical records.",
+      "relevant_budget_ids": ["BUD-2024-009", "BUD-2024-010"],
+      "note": "Healthcare telemedicine. Trap: BUD-2024-011 (pharmacy inventory) and BUD-2024-012 (clinical trials) share the healthcare sector but cover different functionality."
+    },
+    {
+      "id": "Q4",
+      "query": "Industrial IoT platform ingesting sensor telemetry for predictive maintenance and real-time equipment monitoring in a factory.",
+      "relevant_budget_ids": ["BUD-2024-013", "BUD-2024-015"],
+      "note": "Industrial telemetry/monitoring. Trap: BUD-2024-014 (warehouse AGV coordination) is industrial but logistics, not telemetry-driven maintenance."
+    },
+    {
+      "id": "Q5",
+      "query": "Real-time payments gateway with fraud detection, transaction reconciliation and a double-entry ledger.",
+      "relevant_budget_ids": ["BUD-2024-003", "BUD-2024-001"],
+      "note": "Fintech payments. Trap: BUD-2024-006 (e-commerce vendor payouts) and BUD-2024-007 (grocery delivery payments) are lexically near but wrong domain."
+    },
+    {
+      "id": "Q6",
+      "query": "We want to build a system that continuously receives biometric signals from consumer fitness devices worn by patients at home and automatically notifies clinical staff when someone's readings drift outside a safe range, plus a screen where nurses can review who needs attention.",
+      "relevant_budget_ids": ["BUD-2024-010"],
+      "note": "Hand-designed addition (not from the reference golden set), targeting the lexical branch's known weakness: a semantic paraphrase of BUD-2024-010 (remote patient monitoring) that deliberately avoids every literal term from its components ('wearable', 'monitoring', 'alert', 'dashboard' become 'consumer fitness devices', 'continuously receives', 'notifies', 'screen'). ts_rank has almost no shared lexemes to match; vector/hybrid should still find it on meaning alone."
+    },
+    {
+      "id": "Q7",
+      "query": "We need a healthcare data platform that captures structured research data with validation and query management, applies k-anonymity and strips direct identifiers before any data leaves the system, and produces CDISC-formatted exports ready for regulatory submission.",
+      "relevant_budget_ids": ["BUD-2024-012"],
+      "note": "Hand-designed addition (not from the reference golden set), targeting the vector branch's known weakness: precise jargon unique to BUD-2024-012 (k-anonymity, CDISC, de-identification, EDC) embedded in a 'healthcare data privacy' narrative that is semantically close to BUD-2024-009 (GDPR-aligned consent, protected health information) — a plausible embedding trap. Lexical/rerank should latch onto the exact terms; vector alone may drift toward the wrong healthcare budget."
+    }
+  ]
+}
