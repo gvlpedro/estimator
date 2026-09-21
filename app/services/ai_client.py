@@ -27,9 +27,10 @@ class AIServiceError(Exception):
 class AIServiceClient:
     """Thin async client for the AI service's semantic search endpoint."""
 
-    def __init__(self, base_url: str, timeout: float = 15.0) -> None:
+    def __init__(self, base_url: str, timeout: float = 15.0, service_token: str | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self._headers = {"X-Service-Token": service_token} if service_token else {}
 
     async def search(self, query: str, k: int = 5) -> dict:
         """POST /search on the AI service and return the raw response body."""
@@ -38,6 +39,7 @@ class AIServiceClient:
                 response = await client.post(
                     f"{self._base_url}/search",
                     json={"query": query, "k": k},
+                    headers=self._headers,
                 )
                 return self._parse_response(response)
         except httpx.HTTPStatusError as exc:
@@ -57,6 +59,7 @@ class AIServiceClient:
                 response = client.post(
                     f"{self._base_url}/search",
                     json={"query": query, "k": k},
+                    headers=self._headers,
                 )
                 return self._parse_response(response)
         except httpx.HTTPStatusError as exc:

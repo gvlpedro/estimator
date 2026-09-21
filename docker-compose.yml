@@ -3,7 +3,9 @@
 
 services:
   estimator:
-    build: .
+    build:
+      context: .
+      dockerfile: business-backend/Dockerfile
     container_name: estimator
     ports:
       - "8000:8000"
@@ -49,7 +51,7 @@ services:
     build: .
     container_name: estimator-ui
     ports:
-      - "8501:8501"
+      - "3000:8501"
     env_file:
       - .env
     environment:
@@ -69,14 +71,24 @@ services:
       retries: 3
 
   # AI service (Session 07): embedding pipeline for historical budgets.
-  # Reuses the same image; the working dir switch makes `app.main` resolve to
-  # servicio_ia/app instead of the estimator's app/. The bind mount enables
-  # --reload during development.
+  # Built from its own ai-service/Dockerfile (context: repo root, so it still
+  # shares pyproject.toml/uv.lock with the estimator backend). The bind mount
+  # enables --reload during development.
+  #
+  # No "ports:" here on purpose (Session 15): this service is internal-only,
+  # reachable exclusively from other containers on the compose network
+  # (estimator -> http://ai-service:8001, authenticated with
+  # AI_SERVICE_TOKEN -- see servicio_ia/app/security.py). `docker compose port` will show
+  # nothing bound on the host, and http://localhost:8001 from the host will
+  # simply not connect. Host-side dev scripts that used to hit :8001 directly
+  # (seed_budgets.py, query_examples.py, golden_eval.py) now run through
+  # `docker compose run --rm ai-service ...` instead, which reaches this
+  # service over the internal network the same way estimator does.
   ai-service:
-    build: .
+    build:
+      context: .
+      dockerfile: ai-service/Dockerfile
     container_name: servicio-ia
-    ports:
-      - "8001:8001"
     env_file:
       - .env
     # DATABASE_URL points at the in-network postgres service. When running
@@ -89,7 +101,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    working_dir: /app/servicio_ia
+    # working_dir is baked into ai-service/Dockerfile now (WORKDIR
+    # /app/servicio_ia), not overridden here.
     volumes:
       - ./servicio_ia:/app/servicio_ia
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload

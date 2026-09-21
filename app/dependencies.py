@@ -60,7 +60,9 @@ def get_estimation_service() -> EstimationService:
 def get_ai_service_client() -> AIServiceClient:
     """Single client instance for the AI service (servicio_ia, :8001)."""
     settings = get_settings()
-    return AIServiceClient(base_url=settings.AI_SERVICE_BASE_URL)
+    return AIServiceClient(
+        base_url=settings.AI_SERVICE_BASE_URL, service_token=settings.AI_SERVICE_TOKEN
+    )
 
 
 @lru_cache

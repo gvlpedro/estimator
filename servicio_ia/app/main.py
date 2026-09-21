@@ -5,15 +5,16 @@ from contextlib import asynccontextmanager
 
 import logfire
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.embedding_pipeline.router import router as embeddings_router
 from app.embedding_pipeline.router import search_router
+from app.ingest.router import router as ingest_router
 from app.lgraph.build import build_graph
 from app.lgraph.checkpointer import get_checkpointer_dsn
 from app.lgraph.router import router as estimate_router
-from app.ingest.router import router as ingest_router
+from app.security import verify_service_token
 
 
 def configure_logging() -> None:
@@ -74,10 +75,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ingest/encode stay open: they're hit by host-side dev tooling
+# (scripts/seed_budgets.py, query_examples.py), never by the business
+# backend. search and estimate ARE the business backend's call path for a
+# live estimation, so they require the shared service token.
 app.include_router(ingest_router, prefix="/embeddings")
 app.include_router(embeddings_router, prefix="/embeddings")
-app.include_router(search_router)
-app.include_router(estimate_router)
+app.include_router(search_router, dependencies=[Depends(verify_service_token)])
+app.include_router(estimate_router, dependencies=[Depends(verify_service_token)])
 
 
 @app.get("/health")

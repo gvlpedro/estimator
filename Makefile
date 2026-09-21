@@ -13,7 +13,7 @@
 
 SHELL            := /bin/bash
 BACKEND_PORT     ?= 8000
-UI_PORT          ?= 8501
+UI_PORT          ?= 3000
 SERVICIO_IA_PORT ?= 8001
 PORTS            := $(BACKEND_PORT) $(UI_PORT) $(SERVICIO_IA_PORT)
 
@@ -60,12 +60,7 @@ start_alembic:
 	echo "Configuration is included in env.py and /versions, then you can use 'alembic upgrade head' to start"
 	echo "Execute 'alembic history' to check migrations"
 
-# Idempotent Docker bring-up: frees the published ports from stray local
-# processes, tears down any previous compose stack, rebuilds and starts the
-# backend (app), the AI service (servicio_ia) and the UI, then waits for
-# their health endpoints before printing how to reach each service.
-# Order matters: compose down FIRST (it releases the ports Docker holds),
-# THEN stop (it clears stray local processes only — Docker's are skipped).
+
 docker_run:
 	@docker compose down --remove-orphans
 	@$(MAKE) stop
@@ -73,7 +68,7 @@ docker_run:
 	@echo "Waiting for services to become healthy..."
 	@for i in $$(seq 1 60); do \
 		backend=$$(curl -sf -o /dev/null http://localhost:$(BACKEND_PORT)/health && echo ok || echo ko); \
-		ia=$$(curl -sf -o /dev/null http://localhost:$(SERVICIO_IA_PORT)/health && echo ok || echo ko); \
+		ia=$$(docker inspect --format '{{.State.Health.Status}}' servicio-ia 2>/dev/null | grep -q '^healthy$$' && echo ok || echo ko); \
 		ui=$$(curl -sf -o /dev/null http://localhost:$(UI_PORT)/_stcore/health && echo ok || echo ko); \
 		if [ "$$backend$$ia$$ui" = "okokok" ]; then break; fi; \
 		sleep 2; \
@@ -82,7 +77,7 @@ docker_run:
 	echo "=========================================================="; \
 	echo "  Servicios levantados:"; \
 	echo "  Backend (app)  [$$backend]  http://localhost:$(BACKEND_PORT)  —  Swagger: http://localhost:$(BACKEND_PORT)/docs"; \
-	echo "  Servicio IA    [$$ia]  http://localhost:$(SERVICIO_IA_PORT)  —  Swagger: http://localhost:$(SERVICIO_IA_PORT)/docs"; \
+	echo "  Servicio IA    [$$ia]  interno only, sin puerto publicado  —  docker compose exec ai-service curl localhost:8001/docs"; \
 	echo "  UI (Streamlit) [$$ui]  http://localhost:$(UI_PORT)"; \
 	echo "  Redis                localhost:6379 (interno)"; \
 	echo "=========================================================="; \
@@ -98,11 +93,14 @@ docker_check:
 db_upgrade:
 	@export PATH="$$HOME/.local/bin:$$PATH"; uv run alembic upgrade head
 
-# Seed the vector store with the 15 historical budgets of the sample corpus.
-# Idempotent (409 = already ingested). Requires the AI service up (:8001)
-# and the schema applied (make db_upgrade).
+
 seed_ia:
-	@export PATH="$$HOME/.local/bin:$$PATH"; uv run python servicio_ia/scripts/seed_budgets.py
+	@export PATH="$$HOME/.local/bin:$$PATH"; \
+	if [ "$$(docker compose ps -q ai-service 2>/dev/null)" != "" ]; then \
+		docker compose run --rm ai-service python scripts/seed_budgets.py; \
+	else \
+		uv run python servicio_ia/scripts/seed_budgets.py; \
+	fi
 
 stress:
 	@export PATH="$$HOME/.local/bin:$$PATH"; \

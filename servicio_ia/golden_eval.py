@@ -35,6 +35,9 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = os.getenv("SERVICIO_IA_BASE_URL", "http://localhost:8001")
+# /search requires the shared service token (Session 15) -- same one the
+# business backend sends, since this script exercises the same endpoint.
+SERVICE_TOKEN = os.getenv("AI_SERVICE_TOKEN", "")
 GOLDEN_PATH = Path(__file__).resolve().parent / "evals" / "golden_retrieval.json"
 
 CONFIGS = [
@@ -50,7 +53,7 @@ def search(query: str, k: int, params: dict) -> dict:
     request = urllib.request.Request(
         f"{BASE_URL}/search",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Service-Token": SERVICE_TOKEN},
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=60) as response:

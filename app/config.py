@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # Docker; docker-compose overrides it to http://ai_service:8001.
     AI_SERVICE_BASE_URL: str = "http://localhost:8001"
 
+    # Shared secret sent as X-Service-Token on every call to servicio_ia
+    # (see app/services/ai_client.py and servicio_ia/app/security.py). Not
+    # networking: servicio_ia has no published port in docker-compose, but
+    # anything else on the internal network could still reach it otherwise.
+    AI_SERVICE_TOKEN: str | None = None
+
     # --- Session 5 fields (conversational sessions) ---
     # MAX_TURNS counts user+assistant PAIRS. The system prompt is pinned and
     # never counted. Default 6 keeps the prompt budget bounded while still

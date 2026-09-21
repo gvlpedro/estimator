@@ -22,6 +22,9 @@ import urllib.error
 import urllib.request
 
 BASE_URL = os.getenv("SERVICIO_IA_BASE_URL", "http://localhost:8001")
+# /search requires the shared service token (Session 15) -- same one the
+# business backend sends, since this script exercises the same endpoint.
+SERVICE_TOKEN = os.getenv("AI_SERVICE_TOKEN", "")
 K = 5
 PREVIEW_CHARS = 120
 
@@ -53,7 +56,7 @@ def search(query: str) -> dict:
     request = urllib.request.Request(
         f"{BASE_URL}/search",
         data=json.dumps({"query": query, "k": K}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Service-Token": SERVICE_TOKEN},
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=60) as response:
