@@ -461,6 +461,17 @@ class LlmStructuredCallFailed(LogEvent):
     latency_ms: int = Field(ge=0)
 
 
+class ModelNotInPricingTable(LogEvent):
+    """Emitido cuando ``_estimate_cost`` no encuentra ni un match exacto ni
+    un prefijo en ``MODEL_COSTS``. El coste devuelto es 0 en ese caso, y sin
+    esta señal un modelo sin tarifar es indistinguible de una llamada
+    genuinamente gratis en el dashboard."""
+
+    event: ClassVar[str] = "model_not_in_pricing_table"
+    level: ClassVar[LogLevel] = "warning"
+    model: str
+
+
 class StreamCacheHit(LogEvent):
     event: ClassVar[str] = "stream_cache_hit"
     chars: int = Field(ge=0)
@@ -511,6 +522,32 @@ class GeneratingEstimation(LogEvent):
     use_examples: bool
     max_tokens: int = Field(ge=1)
     thinking_budget: int | None = Field(default=None, ge=0)
+
+
+# ---------------------------------------------------------------------------
+# Métricas de request (Sesión 16 -- dashboard de monitorización)
+# ---------------------------------------------------------------------------
+
+
+class RequestCompleted(LogEvent):
+    """Un evento por petición HTTP, emitido por el middleware en ``app/main.py``.
+
+    Mismo nombre de evento y mismos campos que ``servicio_ia``'s
+    ``request_completed`` (ver ``servicio_ia/app/main.py``/``observability.py``)
+    a propósito: ``servicio_ia/eval/dashboard.py`` los parsea a ambos sin
+    distinguir de qué servicio vienen, solo por el campo ``path``.
+    """
+
+    event: ClassVar[str] = "request_completed"
+    path: str
+    method: str
+    status: int
+    latency_ms: float = Field(ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    llm_calls: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0)
 
 
 # ---------------------------------------------------------------------------

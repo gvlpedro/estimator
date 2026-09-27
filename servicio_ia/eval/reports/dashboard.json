@@ -1,0 +1,54 @@
+{
+  "request_count": 5,
+  "errors": 0,
+  "error_rate": 0.0,
+  "latency_ms_mean": 779.0,
+  "latency_ms_p95": 3885.7,
+  "cost_usd_mean": 6.1e-05,
+  "cost_usd_total": 0.000306,
+  "tokens_total": 1765,
+  "llm_calls_total": 1,
+  "by_path": {
+    "/api/v1/sessions/b57e0717-77b3-42b3-b2c4-f6b18716b60d": {
+      "request_count": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 1.4,
+      "latency_ms_p95": 2.3,
+      "cost_usd_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "tokens_total": 0,
+      "llm_calls_total": 0
+    },
+    "/api/v1/sessions": {
+      "request_count": 1,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 5.1,
+      "latency_ms_p95": 5.1,
+      "cost_usd_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "tokens_total": 0,
+      "llm_calls_total": 0
+    },
+    "/api/v1/sessions/b57e0717-77b3-42b3-b2c4-f6b18716b60d/estimate": {
+      "request_count": 1,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 3885.7,
+      "latency_ms_p95": 3885.7,
+      "cost_usd_mean": 0.000306,
+      "cost_usd_total": 0.000306,
+      "tokens_total": 1765,
+      "llm_calls_total": 1
+    }
+  },
+  "generated_at": "2026-09-27T14:27:15+00:00",
+  "sparkline": [
+    5.1,
+    1.3,
+    2.3,
+    3885.7,
+    0.6
+  ]
+}

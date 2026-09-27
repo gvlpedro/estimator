@@ -37,10 +37,12 @@ from app.schemas.log import (
     LlmStructuredCallCompleted,
     LlmStructuredCallFailed,
     LlmStructuredCallStarted,
+    ModelNotInPricingTable,
     StreamCacheHit,
     ThinkingBudgetIgnoredForProvider,
 )
 from app.services.cache import EstimationCache
+from app.services.observability import record_token_usage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -81,7 +83,22 @@ MODEL_COSTS: dict[str, dict[str, float]] = {
 
 def _estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
     base = _normalise_model_name(model)
-    costs = MODEL_COSTS.get(base) or MODEL_COSTS.get(model) or {"input": 0.0, "output": 0.0}
+    costs = MODEL_COSTS.get(base) or MODEL_COSTS.get(model)
+    if costs is None:
+        # Exact match failed -- providers often echo back the dated snapshot
+        # that actually served the request (e.g. "gpt-4o-mini-2024-07-18")
+        # instead of the alias we priced ("gpt-4o-mini"). Fall back to the
+        # LONGEST matching prefix so a more specific alias wins over a
+        # shorter one that would mis-price it (e.g. "gpt-4o" is ~16x
+        # cheaper than "gpt-4o-mini" and must not match first).
+        prefix_matches = [key for key in MODEL_COSTS if base.startswith(key)]
+        if prefix_matches:
+            costs = MODEL_COSTS[max(prefix_matches, key=len)]
+        else:
+            # A genuinely unpriced model still costs 0 here, but now it is
+            # distinguishable in the logs from a call that was really free.
+            ModelNotInPricingTable(model=model).emit()
+            costs = {"input": 0.0, "output": 0.0}
     return round((tokens_in * costs["input"] + tokens_out * costs["output"]) / 1_000_000, 6)
 
 
@@ -215,6 +232,11 @@ class LLMWrapper:
             latency_ms=latency_ms,
             finish_reason=result["finish_reason"],
         ).emit()
+        record_token_usage(
+            input_tokens=result["usage"]["input_tokens"],
+            output_tokens=result["usage"]["output_tokens"],
+            cost_usd=result["cost_usd"],
+        )
         self.cache.set(cache_key, result)
         return {**result, "cache_hit": False}
 
@@ -295,6 +317,11 @@ class LLMWrapper:
             output_tokens=completion.output_tokens,
             cost_usd=completion.cost_usd,
         ).emit()
+        record_token_usage(
+            input_tokens=completion.input_tokens,
+            output_tokens=completion.output_tokens,
+            cost_usd=completion.cost_usd,
+        )
         return completion
 
     def complete_stream(

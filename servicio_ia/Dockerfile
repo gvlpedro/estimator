@@ -1,8 +1,8 @@
 # =============================================================================
-# ai-service/Dockerfile — servicio_ia (embedding pipeline + RAG estimation)
+# servicio_ia/Dockerfile — servicio_ia (embedding pipeline + RAG estimation)
 # =============================================================================
 # Build context is the REPO ROOT (see docker-compose.yml: context: ., dockerfile:
-# ai-service/Dockerfile), not this directory. servicio_ia/ shares a single
+# servicio_ia/Dockerfile), not this directory. servicio_ia/ shares a single
 # pyproject.toml/uv.lock with the estimator backend (see
 # business-backend/Dockerfile) — both services are built from the same
 # dependency set and only diverge in which source tree gets copied in.

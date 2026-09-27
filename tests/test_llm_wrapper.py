@@ -47,6 +47,34 @@ def test_estimate_cost_uses_pricing_table() -> None:
     assert cost == pytest.approx(0.75)
 
 
+def test_estimate_cost_matches_dated_snapshot_via_longest_prefix() -> None:
+    # OpenAI echoes back the dated snapshot that actually served the request
+    # (e.g. "gpt-4o-mini-2024-07-18") instead of the alias we requested and
+    # priced ("gpt-4o-mini") -- an exact-match lookup would silently price
+    # this at zero. Must resolve to the SAME cost as the bare alias.
+    cost = _estimate_cost("gpt-4o-mini-2024-07-18", 1_000_000, 1_000_000)
+    assert cost == pytest.approx(0.75)
+
+
+def test_estimate_cost_prefers_longest_matching_prefix() -> None:
+    # A hypothetical "gpt-4o-mini-turbo" must match the "gpt-4o-mini" entry,
+    # not a shorter "gpt-4o" entry that would mis-price it by ~16x.
+    cost = _estimate_cost("gpt-4o-mini-turbo-2025-01-01", 1_000_000, 1_000_000)
+    assert cost == pytest.approx(0.75)
+
+
+def test_estimate_cost_logs_and_zeros_for_truly_unpriced_model() -> None:
+    import structlog
+
+    with structlog.testing.capture_logs() as logs:
+        cost = _estimate_cost("some-brand-new-model-2099", 1_000_000, 1_000_000)
+
+    assert cost == 0.0
+    warnings = [e for e in logs if e.get("event") == "model_not_in_pricing_table"]
+    assert len(warnings) == 1
+    assert warnings[0]["model"] == "some-brand-new-model-2099"
+
+
 def test_complete_returns_normalised_dict_and_caches(wrapper: LLMWrapper) -> None:
     fake = _fake_completion(model="gpt-4o-mini", content="hello world")
     with patch.object(wrapper.router, "completion", return_value=fake) as mocked:

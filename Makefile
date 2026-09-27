@@ -26,7 +26,11 @@ STRESS_COST_BUDGET      ?= 0.05
 STRESS_OUTPUT           ?= evals/stress/results.csv
 STRESS_REPORT           ?= evals/stress/REPORT.md
 
-.PHONY: setup run stop stress docker_run db_upgrade seed_ia
+.PHONY: setup run stop stress docker_run db_upgrade seed_ia dashboard
+
+DASHBOARD_LOG  ?= /tmp/estimator-ai-service.log
+DASHBOARD_HTML ?= servicio_ia/eval/reports/dashboard.html
+DASHBOARD_JSON ?= servicio_ia/eval/reports/dashboard.json
 
 setup:
 	@command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -100,6 +104,33 @@ seed_ia:
 		docker compose run --rm ai-service python scripts/seed_budgets.py; \
 	else \
 		uv run python servicio_ia/scripts/seed_budgets.py; \
+	fi
+
+
+# Dumps BOTH ai-service's and estimator's container logs and renders the
+# self-contained metrics dashboard (servicio_ia/eval/dashboard.py) from them
+# as HTML + JSON -- covers direct servicio_ia /estimate calls AND UI-driven
+# estimations via the business backend (two different code paths; see
+# doc/evaluation.md). Requires the stack running (`make docker_run`); both
+# services already log JSON by default (APP_ENV=production in
+# docker-compose.yml), so this only warns instead of silently showing an
+# empty dashboard if that's somehow not the case.
+dashboard:
+	@docker compose logs ai-service estimator --no-color > $(DASHBOARD_LOG) 2>/dev/null; \
+	if [ ! -s $(DASHBOARD_LOG) ]; then \
+		echo "No hay logs. ¿Está el stack arriba? Prueba 'make docker_run'."; \
+		exit 1; \
+	fi; \
+	export PATH="$$HOME/.local/bin:$$PATH"; \
+	uv run python servicio_ia/eval/dashboard.py $(DASHBOARD_LOG) \
+		--html $(DASHBOARD_HTML) --json $(DASHBOARD_JSON); \
+	if ! grep -q request_completed $(DASHBOARD_LOG); then \
+		echo ""; \
+		echo "AVISO: 0 eventos request_completed en $(DASHBOARD_LOG)."; \
+		echo "Algún servicio no está logueando en JSON (APP_ENV != production)."; \
+		echo "Para forzarlo puntualmente en ai-service:"; \
+		echo "  docker compose run --rm -e APP_ENV=production ai-service uvicorn app.main:app --host 0.0.0.0 --port 8001"; \
+		echo "  (lanza alguna estimación contra ese proceso y repite 'make dashboard')"; \
 	fi
 
 stress:
