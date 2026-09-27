@@ -32,6 +32,13 @@ class AgentContribution(TypedDict):
     summary: str
 
 
+class TokenUsage(TypedDict):
+    agent: str
+    call: str
+    input_tokens: int
+    output_tokens: int
+
+
 class EstimationState(TypedDict):
     transcript: str
     estimation_id: str
@@ -44,6 +51,10 @@ class EstimationState(TypedDict):
     confidence: Optional[float]
     status: Optional[str]  # "validated" | "needs_review" | "rejected"
     errors: Annotated[list[str], operator.add]
+    # Accumulator field: one entry per model call that reports token usage
+    # (currently only requirements_extractor's two Responses API calls) --
+    # feeds the per-request cost/latency metrics in app.observability.
+    token_usage: Annotated[list[TokenUsage], operator.add]
     # Accumulator field: one entry per agent turn, in run order.
     agent_contributions: Annotated[list[AgentContribution], operator.add]
     # Set by human_review_gate only when a human actually reviewed the case.

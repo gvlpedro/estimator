@@ -29,7 +29,7 @@ docker compose up --build
 | Servicio         | Contenedor         | Puerto publicado | Dockerfile                  |
 | ---------------- | ------------------- | ----------------- | ---------------------------- |
 | Backend (app)     | `estimator`         | `8000`             | `business-backend/Dockerfile` |
-| Servicio IA       | `servicio-ia`        | ninguno (interno)  | `ai-service/Dockerfile`       |
+| Servicio IA       | `servicio-ia`        | ninguno (interno)  | `servicio_ia/Dockerfile`      |
 | UI (Streamlit)    | `estimator-ui`      | `3000`             | `Dockerfile` (raíz, legacy)   |
 | Postgres+pgvector | `estimator-postgres` | `5432`             | imagen `pgvector/pgvector:pg16` |
 | Redis             | `estimator-redis`   | `6379`             | imagen `redis:7-alpine`       |

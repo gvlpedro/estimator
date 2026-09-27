@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>servicio_ia -- production signals</title>
+<style>
+  :root { --bg:#fbfaf9; --fg:#1a1a19; --muted:#6b6b68; --line:#e5e3e0;
+           --card:#fff; --accent:#b45309; --bad:#b91c1c; --ok:#15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --fg:#f0eee6; --muted:#9a9a95; --line:#2b2b28;
+             --card:#1c1c1a; --accent:#d97706; --bad:#f87171; --ok:#4ade80; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:2.5rem 1.5rem; background:var(--bg); color:var(--fg);
+         font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:900px; margin:0 auto; }
+  h1 { font-size:1.4rem; margin:0 0 .25rem; letter-spacing:-.01em; }
+  .meta { color:var(--muted); font-size:.85rem; margin-bottom:2rem; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+            gap:.85rem; margin-bottom:2rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:1rem; }
+  .label { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; }
+  .value { font-size:1.75rem; font-weight:600; margin:.3rem 0 .1rem;
+            font-variant-numeric:tabular-nums; }
+  .hint { color:var(--muted); font-size:.78rem; }
+  .spark { width:100%; height:90px; fill:var(--accent); opacity:.85;
+            background:var(--card); border:1px solid var(--line); border-radius:10px; }
+  h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+        color:var(--muted); margin:2rem 0 .6rem; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; }
+  th,td { text-align:right; padding:.5rem .7rem; border-bottom:1px solid var(--line);
+           font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:.75rem; text-transform:uppercase; }
+  th:first-child, td.path { text-align:left; font-family:ui-monospace,monospace; }
+  .bad { color:var(--bad); } .ok { color:var(--ok); }
+  footer { color:var(--muted); font-size:.78rem; margin-top:2.5rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+</style></head>
+<body><main>
+  <h1>servicio_ia -- production signals</h1>
+  <div class="meta">Generated 2026-09-27T10:46:27+00:00 · from <code>request_completed</code>
+  events in the structured logs</div>
+  <div class="cards"><div class="card"><div class="label">Requests</div><div class="value">11</div><div class="hint"></div></div><div class="card"><div class="label">Error rate</div><div class="value">18.2%</div><div class="hint">2 non-2xx</div></div><div class="card"><div class="label">Latency p95</div><div class="value">11.40s</div><div class="hint">mean 4.63s</div></div><div class="card"><div class="label">Cost / request</div><div class="value">$0.0008</div><div class="hint">$0.0090 total</div></div></div>
+  <h2>Latency, last 11 requests</h2>
+  <svg viewBox="0 0 640 90" preserveAspectRatio="none" class="spark" role="img" aria-label="Latency of the last 11 requests"><rect x="0.0" y="25.3" width="56.7" height="64.7" rx="1"/><rect x="58.2" y="0.0" width="56.7" height="90.0" rx="1"/><rect x="116.4" y="88.3" width="56.7" height="1.7" rx="1"/><rect x="174.5" y="33.2" width="56.7" height="56.8" rx="1"/><rect x="232.7" y="28.4" width="56.7" height="61.6" rx="1"/><rect x="290.9" y="33.7" width="56.7" height="56.3" rx="1"/><rect x="349.1" y="90.0" width="56.7" height="0.0" rx="1"/><rect x="407.3" y="88.6" width="56.7" height="1.4" rx="1"/><rect x="465.5" y="88.3" width="56.7" height="1.7" rx="1"/><rect x="523.6" y="63.2" width="56.7" height="26.8" rx="1"/><rect x="581.8" y="48.9" width="56.7" height="41.1" rx="1"/></svg>
+  <h2>By endpoint</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>path</th><th>reqs</th><th>errors</th><th>mean</th><th>p95</th>
+    <th>$/req</th><th>tokens</th></tr></thead>
+    <tbody><tr><td class='path'>/estimate</td><td>6</td><td class='bad'>17%</td><td>6.99s</td><td>11.40s</td><td>$0.0013</td><td>9,820</td></tr><tr><td class='path'>/search</td><td>2</td><td class='bad'>50%</td><td>0.09s</td><td>0.18s</td><td>$0.0000</td><td>0</td></tr><tr><td class='path'>/estimate/est-004/resume</td><td>1</td><td class='ok'>0%</td><td>0.21s</td><td>0.21s</td><td>$0.0000</td><td>0</td></tr><tr><td class='path'>/api/v1/estimate</td><td>1</td><td class='ok'>0%</td><td>3.40s</td><td>3.40s</td><td>$0.0004</td><td>1,500</td></tr><tr><td class='path'>/api/v1/sessions/sess-demo-1/estimate</td><td>1</td><td class='ok'>0%</td><td>5.20s</td><td>5.20s</td><td>$0.0007</td><td>2,150</td></tr></tbody>
+  </table></div>
+  <footer>The health probe (<code>/health</code>) is excluded: called every 30s, it would
+  dominate every number here. See doc/evaluation.md.</footer>
+</main></body></html>

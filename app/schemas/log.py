@@ -514,6 +514,32 @@ class GeneratingEstimation(LogEvent):
 
 
 # ---------------------------------------------------------------------------
+# Métricas de request (Sesión 16 -- dashboard de monitorización)
+# ---------------------------------------------------------------------------
+
+
+class RequestCompleted(LogEvent):
+    """Un evento por petición HTTP, emitido por el middleware en ``app/main.py``.
+
+    Mismo nombre de evento y mismos campos que ``servicio_ia``'s
+    ``request_completed`` (ver ``servicio_ia/app/main.py``/``observability.py``)
+    a propósito: ``servicio_ia/eval/dashboard.py`` los parsea a ambos sin
+    distinguir de qué servicio vienen, solo por el campo ``path``.
+    """
+
+    event: ClassVar[str] = "request_completed"
+    path: str
+    method: str
+    status: int
+    latency_ms: float = Field(ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    llm_calls: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0)
+
+
+# ---------------------------------------------------------------------------
 # Demo ejecutable
 #
 # ``uv run python -m app.schemas.log`` muestra cómo se usa el schema en

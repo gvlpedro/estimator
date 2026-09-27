@@ -41,6 +41,7 @@ from app.schemas.log import (
     ThinkingBudgetIgnoredForProvider,
 )
 from app.services.cache import EstimationCache
+from app.services.observability import record_token_usage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -215,6 +216,11 @@ class LLMWrapper:
             latency_ms=latency_ms,
             finish_reason=result["finish_reason"],
         ).emit()
+        record_token_usage(
+            input_tokens=result["usage"]["input_tokens"],
+            output_tokens=result["usage"]["output_tokens"],
+            cost_usd=result["cost_usd"],
+        )
         self.cache.set(cache_key, result)
         return {**result, "cache_hit": False}
 
@@ -295,6 +301,11 @@ class LLMWrapper:
             output_tokens=completion.output_tokens,
             cost_usd=completion.cost_usd,
         ).emit()
+        record_token_usage(
+            input_tokens=completion.input_tokens,
+            output_tokens=completion.output_tokens,
+            cost_usd=completion.cost_usd,
+        )
         return completion
 
     def complete_stream(

@@ -34,8 +34,9 @@ from openai import OpenAI
 from app.agents.tools import calculate_estimate, validate_estimate
 from app.agents.tools import search_budgets as retrieve_budget_for
 from app.dependencies import get_embedder, get_reranker
-from app.lgraph.state import AgentContribution, BudgetMatch, EstimationState
+from app.lgraph.state import AgentContribution, BudgetMatch, EstimationState, TokenUsage
 from app.lgraph.tool_access import call_tool
+from app.observability import record_token_usage
 from app.storage.db import session_factory
 
 log = structlog.get_logger()
@@ -145,10 +146,37 @@ def requirements_extractor(state: EstimationState) -> dict[str, Any]:
 
         summary = f"{len(requirements)} requirement(s) -> {len(components)} component(s)"
         log.info("agent_turn_finished", agent=agent, summary=summary)
+        token_usage: list[TokenUsage] = [
+            TokenUsage(
+                agent=agent,
+                call="extract_requirements",
+                input_tokens=requirements_response.usage.input_tokens,
+                output_tokens=requirements_response.usage.output_tokens,
+            ),
+            TokenUsage(
+                agent=agent,
+                call="classify_components",
+                input_tokens=components_response.usage.input_tokens,
+                output_tokens=components_response.usage.output_tokens,
+            ),
+        ]
+        # Also feed the per-HTTP-request accumulator (Session 16): the state
+        # list above is this graph run's own audit trail and survives
+        # replay/inspection; the ContextVar in app.observability is what the
+        # request middleware reads to emit one request_completed event,
+        # regardless of which node happened to call a model.
+        for usage in token_usage:
+            record_token_usage(
+                agent=usage["agent"],
+                call=usage["call"],
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+            )
         return {
             "requirements": requirements,
             "components": components,
             "agent_contributions": _contribution(agent, summary),
+            "token_usage": token_usage,
         }
 
 
