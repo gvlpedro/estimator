@@ -1,0 +1,82 @@
+{
+  "request_count": 11,
+  "errors": 2,
+  "error_rate": 0.182,
+  "latency_ms_mean": 4630.4,
+  "latency_ms_p95": 11400.0,
+  "cost_usd_mean": 0.000822,
+  "cost_usd_total": 0.009043,
+  "tokens_total": 13470,
+  "llm_calls_total": 14,
+  "by_path": {
+    "/estimate": {
+      "request_count": 6,
+      "errors": 1,
+      "error_rate": 0.167,
+      "latency_ms_mean": 6990.0,
+      "latency_ms_p95": 11400.0,
+      "cost_usd_mean": 0.001322,
+      "cost_usd_total": 0.007933,
+      "tokens_total": 9820,
+      "llm_calls_total": 10
+    },
+    "/search": {
+      "request_count": 2,
+      "errors": 1,
+      "error_rate": 0.5,
+      "latency_ms_mean": 92.0,
+      "latency_ms_p95": 180.0,
+      "cost_usd_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "tokens_total": 0,
+      "llm_calls_total": 0
+    },
+    "/estimate/est-004/resume": {
+      "request_count": 1,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 210.0,
+      "latency_ms_p95": 210.0,
+      "cost_usd_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "tokens_total": 0,
+      "llm_calls_total": 0
+    },
+    "/api/v1/estimate": {
+      "request_count": 1,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 3400.0,
+      "latency_ms_p95": 3400.0,
+      "cost_usd_mean": 0.00045,
+      "cost_usd_total": 0.00045,
+      "tokens_total": 1500,
+      "llm_calls_total": 2
+    },
+    "/api/v1/sessions/sess-demo-1/estimate": {
+      "request_count": 1,
+      "errors": 0,
+      "error_rate": 0.0,
+      "latency_ms_mean": 5200.0,
+      "latency_ms_p95": 5200.0,
+      "cost_usd_mean": 0.00066,
+      "cost_usd_total": 0.00066,
+      "tokens_total": 2150,
+      "llm_calls_total": 2
+    }
+  },
+  "generated_at": "2026-09-27T10:46:27+00:00",
+  "sparkline": [
+    8200.0,
+    11400.0,
+    210.0,
+    7200.0,
+    7800.0,
+    7130.0,
+    4.0,
+    180.0,
+    210.0,
+    3400.0,
+    5200.0
+  ]
+}

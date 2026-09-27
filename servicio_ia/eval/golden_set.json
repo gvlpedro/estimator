@@ -1,0 +1,110 @@
+{
+  "k_per_component_search": 5,
+  "cases": [
+    {
+      "id": "case-001",
+      "case_type": "estimation",
+      "transcript": "Reunión de descubrimiento — Proyecto \"App de banca móvil\"\nCliente: Marta Ledesma (CTO, NeoPagos)\nConsultor: equipo de estimación\nFecha: reunión inicial\n\n[00:00:12] Consultor: Gracias por el tiempo, Marta. Cuéntanos qué tenéis en mente y para cuándo.\n\n[00:00:25] Marta: Sí, vamos al grano que tengo otra a y media. Somos una fintech, NeoPagos. Lo que\nqueremos construir es el backend de una aplicación de banca móvil. El foco para esta primera fase\nes la autenticación y el cumplimiento normativo, que es lo que nos está bloqueando con el regulador.\n\n[00:01:03] Consultor: Perfecto. Cuando dices autenticación, ¿a qué nivel?\n\n[00:01:10] Marta: Necesitamos OAuth 2.0 hecho bien. Authorization code flow y refresh tokens, con\nsesiones gestionadas por JWT. Somos multi-tenant, así que el aislamiento de tokens por cliente es\ncrítico, y queremos rate limiting por cliente desde el día uno. No es negociable.\n\n[00:01:48] Consultor: Entendido. ¿Y la parte de cumplimiento?\n\n[00:01:55] Marta: PSD2. Open banking. Necesitamos los endpoints de información de cuenta y de\niniciación de pagos conformes con PSD2 y con el estándar del Berlin Group. Eso incluye SCA,\nautenticación reforzada de cliente, y un módulo de gestión de consentimientos. Sin esto no salimos.\n\n[00:02:40] Consultor: ¿Qué tecnología tenéis en casa? Para no ir contracorriente.\n\n[00:02:47] Marta: El equipo es de Ruby on Rails, base de datos PostgreSQL, y Redis para cachés y\ncolas. Preferimos seguir con eso. Más adelante habrá un libro mayor de transacciones con escritura\nidempotente y conciliación diaria, pero eso es fase dos; ahora céntrate en autenticación y PSD2.\n\n[00:03:30] Consultor: Clarísimo. Sector financiero, Rails sobre Postgres y Redis, OAuth 2.0 con JWT\ny PSD2 con SCA y consentimientos como alcance de la fase uno.\n\n[00:03:42] Marta: Exacto. Si me pasáis una estimación con fases y coste de aquí a una semana,\npodemos arrancar a final de mes. Cualquier duda me escribís. Me tengo que ir, gracias.\n",
+      "expected_hours": 310,
+      "acceptable_range": [
+        200,
+        420
+      ],
+      "grounding": {
+        "historical_refs": {
+          "OAuth 2.0 authentication backend": [
+            "BUD-2023-004:120h",
+            "BUD-2024-014:120h"
+          ],
+          "PSD2 payment initiation / consent": [
+            "BUD-2023-004:160h",
+            "BUD-2024-014:140h"
+          ]
+        },
+        "math": "median(120,120)*1.15=138 [auth] + median(160,140)*1.15=172.5 [PSD2] = ~310.5h"
+      },
+      "notes": "Easy/common case: reuses examples/transcripts/01_clear.txt verbatim (real repo asset, not invented). Fintech OAuth2+PSD2 on Ruby on Rails matches BUD-2023-004 and BUD-2024-014 almost component-for-component. Range is wide because requirements_extractor may keep PSD2 as one component or split payment-initiation from consent-management."
+    },
+    {
+      "id": "case-002",
+      "case_type": "estimation",
+      "transcript": "Reunión de alcance — proyecto sin cerrar\nCliente: Nuria Belmonte (responsable de operaciones, clínica privada Vida+)\nConsultor: equipo de estimación\nFecha: segunda reunión, el alcance sigue abierto\n\n[00:00:10] Consultor: Hola Nuria. La última vez quedamos en que ibais a concretar el alcance. ¿Cómo\nlo veis?\n\n[00:00:21] Nuria: Sí, a ver, lo hemos hablado en comité y... bueno, hay de todo. Te cuento y me dices.\nLa idea inicial era una plataforma para que los pacientes pidan cita online, eso era lo prioritario.\nUna agenda, que vean los huecos del médico, reserven, reciban un recordatorio. Eso lo teníamos claro.\n\n[00:01:05] Consultor: Vale, agenda y citas. ¿Y la integración con vuestro sistema clínico?\n\n[00:01:12] Nuria: Ahí está el tema. Porque claro, si hacemos las citas, alguien dijo que ya\npuestos integremos con el historial clínico, lo del estándar ese, ¿HL7? FHIR, eso. Y suena bien,\npero me da un poco de vértigo, porque eso ya es harina de otro costal y no sé si para la primera fase.\n\n[00:02:00] Nuria: Y luego está lo de la videoconsulta. El director médico está empeñado en la\ntelemedicina, que si videollamada con el paciente, sala de espera virtual, notas durante la consulta.\nYo le digo que vayamos paso a paso, pero él lo quiere todo ya. La verdad es que no lo tengo decidido.\n\n[00:02:55] Consultor: Entiendo. Entonces, para acotar: ¿arrancamos con la agenda de citas y dejamos\nFHIR y videoconsulta para después?\n\n[00:03:08] Nuria: Pues... mira, ahora que lo dices en voz alta, igual la agenda sola se queda corta.\nPorque si un paciente pide cita pero luego no podemos ver su historial, ¿de qué nos sirve? A lo mejor\nlo de FHIR sí que es lo primero. O no. Es que depende de a quién preguntes en la clínica.\n\n[00:04:00] Nuria: Y la videoconsulta... no sé, igual eso es lo que de verdad nos diferencia de la\ncompetencia y deberíamos empezar por ahí. Aunque también es lo más caro, me imagino. Uf. ¿Tú qué\nharías?\n\n[00:04:30] Consultor: Podemos plantear escenarios. ¿Hay fecha o presupuesto que nos marque?\n\n[00:04:38] Nuria: Fecha cerrada no. Presupuesto... depende de lo que entre. Mira, lo dejamos así: yo\nlo vuelvo a llevar al comité, porque sinceramente hoy no te puedo decir qué entra y qué no. Te escribo\ncuando lo tengamos. Lo siento, sé que esto no os lo pone fácil.\n\n[00:05:05] Consultor: Sin problema, Nuria. Quedamos a la espera de que cerréis prioridades. Gracias.\n",
+      "expected_hours": 400,
+      "acceptable_range": [
+        220,
+        560
+      ],
+      "grounding": {
+        "historical_refs": {
+          "Video consultation": [
+            "BUD-2023-006:160h"
+          ],
+          "FHIR/HL7 clinical integration": [
+            "BUD-2022-001:180h (FHIR API)",
+            "BUD-2022-001:140h (HL7 v2)"
+          ],
+          "Appointment scheduling": [
+            "BUD-2022-001:90h"
+          ]
+        },
+        "math": "160*1.15=184 + ~160*1.15=184 + 90*1.15=103.5 = ~471h if all 3 scopes ship; less if the client trims scope"
+      },
+      "notes": "Medium-high effort case: reuses examples/transcripts/03_hard.txt verbatim. The client explicitly has NOT decided final scope (agenda-only vs agenda+FHIR vs agenda+video) -- this is a deliberate stress test of scope ambiguity feeding into requirements_extractor, not just a bigger version of case-001. Wide range reflects that real uncertainty, not sloppy grounding."
+    },
+    {
+      "id": "case-003",
+      "case_type": "partial_precedent",
+      "transcript": "Reunión exploratoria — sin título claro todavía\nCliente: Rubén Castaño (gerente, Casa Castaño — tienda de productos gourmet)\nConsultor: equipo de estimación\nFecha: primera toma de contacto\n\n[00:00:08] Consultor: Buenas, Rubén. Cuéntame, ¿qué os ronda por la cabeza?\n\n[00:00:15] Rubén: Pues mira, es que llevamos dándole vueltas un tiempo y no sé muy bien por dónde\nempezar, por eso os hemos llamado. Tenemos la tienda física de toda la vida, la de mi padre, llevamos\ncon ella desde el noventa y dos. Conservas, vinos, aceite, esas cosas. Y claro, vemos que el mundo va\npor otro lado y que hay que dar el salto, pero no tenemos ni idea de tecnología, ¿eh?, te lo digo ya.\n\n[00:01:02] Consultor: Sin problema, para eso estamos. ¿Qué te gustaría conseguir?\n\n[00:01:09] Rubén: A ver, lo ideal sería vender por internet, eso seguro. Que la gente entre, vea los\nproductos y compre, ¿no? Pero también... mira, mi sobrina, que de esto sabe más que yo, me dice que\nlo importante hoy es fidelizar. Que un cliente que repite vale más que diez que vienen una vez. Y yo\npienso, pues igual algo de puntos, o un club, no sé, que la gente acumule y luego canjee. Eso me\ngustaría. Aunque tampoco quiero liarlo mucho al principio, ¿eh?\n\n[00:02:05] Consultor: Vale. ¿Y cómo te imaginas el día a día gestionándolo?\n\n[00:02:12] Rubén: Pues eso es lo otro. Yo necesito ver qué se vende. Un panel, algo donde yo entre\npor la mañana con el café y vea los pedidos del día, lo que más se mueve, el stock... que ahora lo\nllevo en un cuaderno, te lo juro. Mi mujer me dice que parezco del siglo pasado. Algo visual, con sus\ngráficas, para tomar decisiones. Eso lo veo clarísimo, lo del panel de control.\n\n[00:03:01] Rubén: Ah, y oye, una cosa importante: que la gente pueda pagar con tarjeta, claro. Eso es\nfundamental, que el pago sea fácil y seguro, que no se me vayan en el último paso. He oído que mucha\ngente llena el carrito y luego no paga, y eso no puede ser.\n\n[00:03:40] Consultor: Totalmente. ¿Tenéis volumen previsto, mercados, algo de eso?\n\n[00:03:47] Rubén: Uf, pues no sabría decirte. España de momento, supongo. Aunque un primo en Francia\nme dice que allí los productos españoles se venden solos, así que quién sabe, igual más adelante.\nPero no me hagas mucho caso con eso. Y mira, también pensaba... no sé si es mucho pedir, pero estaría\nbien mandar un correo cuando alguien compra, para que sepa que va su pedido. Detalles, ¿sabes? Que el\ncliente se sienta atendido como en la tienda de siempre.\n\n[00:04:35] Rubén: En fin, que tampoco quiero marearos. Que sé que esto es un mundo. Lo que necesito\nes que me digáis vosotros, que sois los que sabéis, qué se puede hacer y más o menos cuánto cuesta.\nYo de presupuestos de software ni idea, ¿eh? Decidme un número y vemos.\n\n[00:05:02] Consultor: Tranquilo, Rubén, lo recogemos y te volvemos con una propuesta. Gracias.\n",
+      "expected_hours": null,
+      "acceptable_range": null,
+      "grounding": {
+        "historical_refs": {
+          "Loyalty program": [
+            "BUD-2024-009:60h (single reference -- thin precedent)"
+          ],
+          "Ecommerce storefront/checkout": [
+            "BUD-2024-009:110h+120h",
+            "BUD-2023-005:90h+130h"
+          ],
+          "Admin/reporting panel": [
+            "BUD-2023-004:40h"
+          ]
+        }
+      },
+      "notes": "Edge case: reuses examples/transcripts/02_ambiguous.txt verbatim. A single-shop gourmet retailer explicitly asking to keep scope small ('no quiero liarlo mucho al principio') against a historical corpus of 380-540h ENTERPRISE-scale projects. Components (loyalty, checkout, dashboard) all have named analogues -- this is NOT a no-precedent case -- but the scale mismatch should plausibly push the total below the historical envelope (validate_estimate's in_historical_range check) or leave a component thin/unbudgeted, triggering human review for a DIFFERENT reason than case-004's genuine absence of precedent. See doc/evaluation.md for how evaluate_case tells the two apart via review.validation.no_precedent."
+    },
+    {
+      "id": "case-004",
+      "case_type": "abstention",
+      "transcript": "Reunión de descubrimiento — Cooperativa agrícola San Isidro\nCliente: Fermín Otazu (gerente, Cooperativa San Isidro)\nConsultor: equipo de estimación\nFecha: primera reunión\n\n[00:00:10] Consultor: Buenos días, Fermín. Cuéntanos qué necesitáis.\n\n[00:00:18] Fermín: Pues mirad, llevamos gestionando el almacén de la cooperativa con\nun sistema que instalaron en 1994, corre sobre un AS/400, en COBOL. No hay\ndocumentación de ningún tipo, el que lo montó murió hace años. Lo que necesitamos es\nque el sistema nuevo hable con ese, para sincronizar el inventario de grano y abonos.\n\n[00:01:05] Consultor: ¿Tenéis algún manual, API, algo de las pantallas?\n\n[00:01:12] Fermín: Nada. Lo único que hay es un compañero, Basilio, que lleva cuarenta\naños y se sabe las pantallas de memoria. Si él se jubila y no lo hemos resuelto, nos\nquedamos ciegos.\n\n[00:01:40] Consultor: Entendido. ¿Y qué tecnología maneja vuestro equipo actual, si es\nque hay equipo técnico?\n\n[00:01:48] Fermín: Técnico no tenemos ninguno, por eso os llamamos. Contable sí, un\nchico que sabe de Excel avanzado, poco más.\n\n[00:02:10] Consultor: ¿Volumen de socios, referencias de producto, algo que nos dé una\nidea de escala?\n\n[00:02:20] Fermín: Somos ciento veinte socios, unas tres mil referencias entre\nsemillas, abonos y maquinaria en alquiler. Pequeño, comparado con lo que imagino que\nveis normalmente.\n\n[00:02:50] Consultor: Tomamos nota. Es un caso poco habitual, con el sistema legado\nsin documentar como mayor incógnita. Os proponemos primero una fase de descubrimiento\ntécnico del AS/400 antes de comprometer una cifra cerrada.\n\n[00:03:15] Fermín: Como veáis, vosotros sabéis. Solo que no se nos pare el almacén.\n",
+      "expected_hours": null,
+      "acceptable_range": null,
+      "grounding": {
+        "historical_refs": "none -- no COBOL/AS400/mainframe tech and no agricultural-cooperative sector anywhere in data/budgets_sample.json's 15 budgets (sectors present: healthcare, industrial, ecommerce, finance)."
+      },
+      "notes": "Genuine abstention case (new transcript, not from examples/transcripts/). A 30-year-old undocumented COBOL/AS400 system with no API, no manuals, and a sole human as the only 'documentation' -- the closest thing to case-003's assignment-example ERP scenario, but pushed further outside the corpus (wrong sector too, not just an unusual technology) since budget_searcher's retrieval has no similarity threshold and always returns its top-k regardless of true relevance (see doc/evaluation.md 'known gap' callout) -- this case is designed to be as unambiguously precedent-free as the corpus allows, to keep that structural weak spot from producing a false positive."
+    },
+    {
+      "id": "case-005",
+      "case_type": "estimation",
+      "transcript": "Reunión de descubrimiento — Proyecto \"TransNorte Fleet\"\nCliente: Ainhoa Zubiría (directora de operaciones, TransNorte Logística)\nConsultor: equipo de estimación\nFecha: reunión inicial\n\n[00:00:09] Consultor: Buenas, Ainhoa. Adelante, cuéntanos el proyecto.\n\n[00:00:16] Ainhoa: Somos TransNorte, transporte de mercancía por carretera, cien\ncamiones propios. Ahora mismo cada camión lleva un GPS suelto de un proveedor\ndistinto y no cruzamos los datos con nada. Queremos una plataforma propia de\nseguimiento de flota en tiempo real.\n\n[00:01:00] Consultor: ¿Qué necesitáis ver exactamente del seguimiento?\n\n[00:01:06] Ainhoa: Posición en el mapa, velocidad, paradas no planificadas. Y lo\nimportante: que el sistema nos proponga rutas optimizadas según tráfico y ventanas de\nentrega, porque ahora mismo el reparto de rutas lo hace un compañero a ojo con un\nmapa en la pared.\n\n[00:01:50] Consultor: ¿Tenéis integración con facturación o eso queda fuera por\nahora?\n\n[00:01:58] Ainhoa: Fuera por ahora. Fase uno es tracking GPS y optimización de rutas.\nFacturación automática y app para conductores, si acaso en fase dos.\n\n[00:02:30] Consultor: ¿Stack tecnológico con el que trabajáis o preferís que\npropongamos nosotros?\n\n[00:02:38] Ainhoa: Nuestro equipo interno es Node, así que si podéis seguir en Node\nmejor, para que luego lo mantengan ellos.\n\n[00:03:00] Consultor: Perfecto: tracking GPS en tiempo real y motor de optimización de\nrutas, en Node, dejando facturación y app de conductor para una fase posterior.\n\n[00:03:12] Ainhoa: Exacto. Si nos mandáis número y plazos esta semana, genial.\n",
+      "expected_hours": 322,
+      "acceptable_range": [
+        220,
+        420
+      ],
+      "grounding": {
+        "historical_refs": {
+          "Fleet GPS tracking": [
+            "BUD-2025-015:130h"
+          ],
+          "Route optimization engine": [
+            "BUD-2025-015:150h"
+          ]
+        },
+        "math": "130*1.15=149.5 + 150*1.15=172.5 = 322h"
+      },
+      "notes": "Second easy/common precedent case (new transcript), industrial/logistics sector on Node.js -- diversifies away from case-001's finance sector. Near-verbatim match to BUD-2025-015's two named components; the client explicitly defers billing and driver-app scope to a later phase, keeping this case's scope tight."
+    }
+  ]
+}

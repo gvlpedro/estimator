@@ -1,0 +1,19 @@
+# SYNTHETIC sample log for servicio_ia/eval/dashboard.py -- hand-built request_completed
+# events, not a real run (no model was called, no money was spent). Demonstrates the
+# dashboard's terminal/--html/--json output end-to-end. See doc/evaluation.md.
+# /health is deliberately absent: the metrics middleware never emits an event for it.
+# Mixes both services on purpose (Session 16): servicio_ia's direct /estimate
+# (ai-service prefix below) AND the business backend's UI-driven paths
+# (estimator prefix) -- this is what `docker compose logs ai-service estimator`
+# actually looks like, and what `make dashboard` parses.
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 200, "latency_ms": 8200.0, "input_tokens": 1450, "output_tokens": 620, "total_tokens": 2070, "llm_calls": 2, "cost_usd": 0.001603}
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 200, "latency_ms": 11400.0, "input_tokens": 1980, "output_tokens": 810, "total_tokens": 2790, "llm_calls": 2, "cost_usd": 0.002115}
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 422, "latency_ms": 210.0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0, "cost_usd": 0.0}
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 200, "latency_ms": 7200.0, "input_tokens": 1200, "output_tokens": 500, "total_tokens": 1700, "llm_calls": 2, "cost_usd": 0.0013}
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 200, "latency_ms": 7800.0, "input_tokens": 1200, "output_tokens": 600, "total_tokens": 1800, "llm_calls": 2, "cost_usd": 0.0015}
+servicio-ia  | {"event": "request_completed", "path": "/estimate", "method": "POST", "status": 200, "latency_ms": 7130.0, "input_tokens": 860, "output_tokens": 600, "total_tokens": 1460, "llm_calls": 2, "cost_usd": 0.001415}
+servicio-ia  | {"event": "request_completed", "path": "/search", "method": "POST", "status": 401, "latency_ms": 4.0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0, "cost_usd": 0.0}
+servicio-ia  | {"event": "request_completed", "path": "/search", "method": "POST", "status": 200, "latency_ms": 180.0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0, "cost_usd": 0.0}
+servicio-ia  | {"event": "request_completed", "path": "/estimate/est-004/resume", "method": "POST", "status": 200, "latency_ms": 210.0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0, "cost_usd": 0.0}
+estimator  | {"event": "request_completed", "path": "/api/v1/estimate", "method": "POST", "status": 200, "latency_ms": 3400.0, "input_tokens": 1000, "output_tokens": 500, "total_tokens": 1500, "llm_calls": 2, "cost_usd": 0.00045}
+estimator  | {"event": "request_completed", "path": "/api/v1/sessions/sess-demo-1/estimate", "method": "POST", "status": 200, "latency_ms": 5200.0, "input_tokens": 1400, "output_tokens": 750, "total_tokens": 2150, "llm_calls": 2, "cost_usd": 0.00066}

@@ -3,7 +3,7 @@ from app.services.evaluation import evaluate_estimation_structure
 
 
 def test_well_formed_estimation_passes_all_checks() -> None:
-    text = CANONICAL_EXAMPLES[0].estimation_markdown
+    text = CANONICAL_EXAMPLES[0].render_markdown()
     result = evaluate_estimation_structure(text, finish_reason="stop")
     assert result.has_title
     assert result.has_breakdown_table
@@ -22,14 +22,14 @@ def test_well_formed_estimation_passes_all_checks() -> None:
 
 
 def test_well_formed_estimation_anthropic_end_turn_passes() -> None:
-    text = CANONICAL_EXAMPLES[1].estimation_markdown
+    text = CANONICAL_EXAMPLES[1].render_markdown()
     result = evaluate_estimation_structure(text, finish_reason="end_turn")
     assert result.finish_reason_ok is True
     assert result.score == 1.0
 
 
 def test_mismatched_total_hours_is_flagged() -> None:
-    text = CANONICAL_EXAMPLES[0].estimation_markdown.replace(
+    text = CANONICAL_EXAMPLES[0].render_markdown().replace(
         "**Total hours:** 200", "**Total hours:** 999"
     )
     result = evaluate_estimation_structure(text, finish_reason="stop")
@@ -48,7 +48,7 @@ def test_missing_table_is_detected() -> None:
 
 
 def test_finish_reason_length_fails_check() -> None:
-    text = CANONICAL_EXAMPLES[2].estimation_markdown
+    text = CANONICAL_EXAMPLES[2].render_markdown()
     result = evaluate_estimation_structure(text, finish_reason="length")
     assert result.finish_reason_ok is False
     assert any("truncated" in msg.lower() or "finish_reason" in msg for msg in result.issues)

@@ -16,6 +16,34 @@ dependencies = [
     "litellm>=1.50",
     "redis>=5.0",
     "sse-starlette>=2.1",
+    "jinja2>=3.1",
+    "instructor>=1.6",
+    "python-multipart>=0.0.9",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "pyyaml>=6.0",
+    "reportlab>=4.0",
+    "tiktoken>=0.7.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    "alembic>=1.13",
+    "sentence-transformers>=3.0",
+    "ragas>=0.2",
+    # ragas 0.4.x unconditionally imports
+    # langchain_community.chat_models.vertexai.ChatVertexAI at import time
+    # (ragas/llms/base.py), but that module was removed from
+    # langchain-community>=0.4 as part of its integration-package sunset
+    # (https://github.com/langchain-ai/langchain-community/issues/674).
+    # ragas's own dependency declaration leaves langchain-community
+    # unbounded, so a plain `uv sync` resolves the latest (broken) 0.4.x and
+    # `import ragas` fails with ModuleNotFoundError. Pin to the last 0.3.x
+    # release, which still ships that module, until ragas fixes the import.
+    "langchain-community==0.3.31",
+    "langgraph>=1.2.11",
+    "langgraph-checkpoint-postgres>=3.1.2",
+    "logfire[asyncpg,fastapi,httpx]>=5.0.0",
+    "psycopg[binary]>=3.3.5",
 ]
 
 [dependency-groups]

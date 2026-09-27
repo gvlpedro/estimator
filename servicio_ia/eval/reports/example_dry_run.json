@@ -1,0 +1,55 @@
+{
+  "note": "SYNTHETIC DRY RUN -- hand-built response bodies, NOT a real model call. Proves the harness's scoring/report shape end-to-end without spending real tokens. See doc/evaluation.md for how to produce a real run against a live docker-compose deployment.",
+  "within_range_rate": 1.0,
+  "mean_absolute_error": 24.0,
+  "abstention_correct": true,
+  "mean_latency_ms": 8320.0,
+  "cases": [
+    {
+      "id": "case-001",
+      "type": "estimation",
+      "passed": true,
+      "status": "validated",
+      "predicted_hours": 310.5,
+      "expected_hours": 310,
+      "abs_error": 0.5,
+      "latency_ms": 8200.0
+    },
+    {
+      "id": "case-002",
+      "type": "estimation",
+      "passed": true,
+      "status": "needs_review",
+      "predicted_hours": 471.5,
+      "expected_hours": 400,
+      "abs_error": 71.5,
+      "latency_ms": 11400.0
+    },
+    {
+      "id": "case-003",
+      "type": "partial_precedent",
+      "passed": true,
+      "status": "awaiting_human_review",
+      "no_precedent": false,
+      "latency_ms": 7100.0
+    },
+    {
+      "id": "case-004",
+      "type": "abstention",
+      "passed": true,
+      "status": "awaiting_human_review",
+      "no_precedent": true,
+      "latency_ms": 6900.0
+    },
+    {
+      "id": "case-005",
+      "type": "estimation",
+      "passed": true,
+      "status": "validated",
+      "predicted_hours": 322.0,
+      "expected_hours": 322,
+      "abs_error": 0.0,
+      "latency_ms": 8000.0
+    }
+  ]
+}

@@ -3,7 +3,9 @@
 
 services:
   estimator:
-    build: .
+    build:
+      context: .
+      dockerfile: business-backend/Dockerfile
     container_name: estimator
     ports:
       - "8000:8000"
@@ -14,11 +16,19 @@ services:
 
     # Override REDIS_URL for the in-network Redis service. The .env value
     # (redis://localhost:6379) is meant for running uvicorn outside Docker.
+    # APP_ENV=production here only switches structlog's renderer to JSON
+    # (see configure_logging() in app/main.py) -- same reasoning as
+    # ai-service below: `make dashboard` needs real request_completed
+    # events from BOTH containers, not just servicio_ia's.
     environment:
       REDIS_URL: redis://redis:6379
+      AI_SERVICE_BASE_URL: http://ai-service:8001
+      APP_ENV: production
 
     depends_on:
       redis:
+        condition: service_healthy
+      ai-service:
         condition: service_healthy
 
     # Bind-mount the app/ directory so code changes are reflected immediately
@@ -40,6 +50,101 @@ services:
       start_period: 10s
       retries: 3
 
+  # Streamlit UI (frontal). Same image as the backend; talks to the estimator
+  # service through the compose network, not localhost.
+  ui:
+    build: .
+    container_name: estimator-ui
+    ports:
+      - "3000:8501"
+    env_file:
+      - .env
+    environment:
+      ESTIMATOR_API_BASE_URL: http://estimator:8000
+    depends_on:
+      estimator:
+        condition: service_healthy
+    volumes:
+      - ./ui:/app/ui
+    command: streamlit run ui/streamlit_app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # AI service (Session 07): embedding pipeline for historical budgets.
+  # Built from its own servicio_ia/Dockerfile (context: repo root, so it still
+  # shares pyproject.toml/uv.lock with the estimator backend). The bind mount
+  # enables --reload during development.
+  #
+  # No "ports:" here on purpose (Session 15): this service is internal-only,
+  # reachable exclusively from other containers on the compose network
+  # (estimator -> http://ai-service:8001, authenticated with
+  # AI_SERVICE_TOKEN -- see servicio_ia/app/security.py). `docker compose port` will show
+  # nothing bound on the host, and http://localhost:8001 from the host will
+  # simply not connect. Host-side dev scripts that used to hit :8001 directly
+  # (seed_budgets.py, query_examples.py, golden_eval.py) now run through
+  # `docker compose run --rm ai-service ...` instead, which reaches this
+  # service over the internal network the same way estimator does.
+  ai-service:
+    build:
+      context: .
+      dockerfile: servicio_ia/Dockerfile
+    container_name: servicio-ia
+    env_file:
+      - .env
+    # DATABASE_URL points at the in-network postgres service. When running
+    # uvicorn outside Docker, use localhost:5432 instead.
+    # SERVICIO_IA_BASE_URL is consumed by query_examples.py in one-off
+    # containers (docker compose run), where localhost is NOT the API.
+    # APP_ENV=production here only switches structlog's renderer to JSON
+    # (see configure_logging() in app/main.py) -- it does not affect CORS,
+    # debug mode, or anything else. Overridden (not left to .env) so
+    # `make dashboard` has real request_completed events to parse right
+    # after `make docker_run`, without a separate one-off container.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://estimator:estimator@postgres:5432/estimator
+      SERVICIO_IA_BASE_URL: http://ai-service:8001
+      APP_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # working_dir is baked into servicio_ia/Dockerfile now (WORKDIR
+    # /app/servicio_ia), not overridden here.
+    volumes:
+      - ./servicio_ia:/app/servicio_ia
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # Postgres 16 with the pgvector extension precompiled (official pgvector
+  # image). The extension itself is enabled with CREATE EXTENSION vector.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: estimator-postgres
+    environment:
+      POSTGRES_DB: estimator
+      POSTGRES_USER: estimator
+      POSTGRES_PASSWORD: estimator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estimator -d estimator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: estimator-redis
@@ -56,3 +161,4 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:
